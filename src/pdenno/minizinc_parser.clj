@@ -88,9 +88,6 @@
 (defrecord MznEOLcomment [str])
 (defn MznOperator? [x] (instance? MznOperator x))
 
-;;; ; Identifier is below minus keywords I interpret the second disjunct as 'any UTF-8'
-;;; <ident> ::= [A-Za-z][A-Za-z0-9_]* | ’[^’\xa\xd\x0]*’  
-
 ;;; https://www.regular-expressions.info/modifiers.html (?s) allows  .* to match all characters including line breaks. 
 (defn- token-from-string
   "Return a map with keys :ws, :raw and :tkn from the front of the argument string."
