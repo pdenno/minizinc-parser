@@ -17,7 +17,7 @@
 ;;; POD As written pstate really has to be a variable! (Otherwise will need to substitute in @body tree.)
 (defmacro ^:private defparse [tag [pstate & keys-form] & body]
   `(defmethod parse ~tag [~'tag ~pstate ~@(or keys-form '(& ignore))]
-;     (println ~tag)
+;    (println ~tag)
      (as-> ~pstate ~pstate
        (reset! diag (update-in ~pstate [:tags] conj ~tag))
        (update-in ~pstate [:local] #(into [{}] %))
@@ -52,14 +52,14 @@
     (when-let [result (cond (and (= c0 \.) (= c1 \.)) {:raw ".." :tkn :..-op}
                             (and (= c0 \-) (= c1 \>)) {:raw "->" :tkn :->-op}
                             (and (= c0 \<) (= c1 \-)) {:raw "<-" :tkn :<--op}
-                            (and (= c0 \\) (= c1 \/)) {:raw "<-" :tkn :or-op}
-                            (and (= c0 \/) (= c1 \\)) {:raw "<-" :tkn :and-op}
-                            (and (= c0 \<) (= c1 \=)) {:raw "<-" :tkn :le-op}
-                            (and (= c0 \>) (= c1 \=)) {:raw "<-" :tkn :ge-op}
-                            (and (= c0 \=) (= c1 \=)) {:raw "<-" :tkn :eq-op}
-                            (and (= c0 \!) (= c1 \=)) {:raw "<-" :tkn :ne-op}
-                            (and (= c0 \+) (= c1 \+)) {:raw "<-" :tkn :++-op}
-                            (and (= c0 \<) (= c1 \-) (= c2 \>)) {:raw "<-" :tkn :<->-op})]
+                            (and (= c0 \\) (= c1 \/)) {:raw "\\/" :tkn :or-op}
+                            (and (= c0 \/) (= c1 \\)) {:raw "/\\" :tkn :and-op}
+                            (and (= c0 \<) (= c1 \=)) {:raw "<=" :tkn :le-op}
+                            (and (= c0 \>) (= c1 \=)) {:raw ">=" :tkn :ge-op}
+                            (and (= c0 \=) (= c1 \=)) {:raw "==" :tkn :eq-op}
+                            (and (= c0 \!) (= c1 \=)) {:raw "!=" :tkn :ne-op}
+                            (and (= c0 \+) (= c1 \+)) {:raw "++" :tkn :++-op}
+                            (and (= c0 \<) (= c1 \-) (= c2 \>)) {:raw "<->" :tkn :<->-op})]
       (assoc result :ws ws))))
 
 (defn position-break 
@@ -100,7 +100,7 @@
     (or  (and (empty? s) {:ws ws :raw "" :tkn :eof})                    ; EOF
          (and (mzn-long-syntactic c) (read-long-syntactic s ws))        ; ++, <=, == etc. 
          (and (mzn-syntactic c) {:ws ws :raw (str c) :tkn c})           ; literal syntactic char.
-         (when-let [[_ num] (re-matches #"(?s)(\d+\.?\d*(e[+-]?\d+)?).*" s)] 
+         (when-let [[_ num] (re-matches #"(?s)(\d+(\.\d+e[+-]?\d+)?).*" s)] 
            {:ws ws :raw num :tkn (read-string num)}),                   ; number
          (when-let [[_ id] (re-matches #"(?s)('[^']*').*" s)]           ; identifer type 2 POD Need's work. 
            {:ws ws :raw id :tkn (->MznIdentifier id)})
@@ -117,7 +117,6 @@
                {:ws ws :raw id :tkn (->MznIdentifier id)}))))
          (throw (ex-info "Char starts no known token: " {:raw c})))))
 
-;;; When done, get rid of Lexeme!
 (defn tokenize
   "Return a list of tokens"
   [stream]
@@ -349,3 +348,16 @@
 
 ;;; <message> ::= ( <line>)+ <line> ::= % [^\n]* \n
 
+;;;=== General =========================
+(defn ppp []
+  (binding [clojure.pprint/*print-right-margin* 140]
+    (pprint *1)))
+
+(defn ppprint [arg]
+  (binding [clojure.pprint/*print-right-margin* 140]
+    (pprint arg)))
+
+(defn break
+  ([] (throw (ex-info "Break!" {})))
+  ([text] (throw (ex-info text {})))
+  ([text args] (throw (ex-info text args))))
