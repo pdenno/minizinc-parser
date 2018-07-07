@@ -159,17 +159,7 @@
         (assoc ?ps :debug-tokens (:tokens ?ps))
         (assoc ?ps :tokens [])))))
 
-(defn- assert-LaTeX
-  "Read a token and check that it is what was expected."
-  [pstate tkn]
-  (as-> pstate ?pstate
-    (if (and (LaTeX? (look ?pstate))
-             (= (:name (look ?pstate)) tkn))
-      (read-token ?pstate)
-      (assoc ?pstate :error (str "expected LaTeX: " tkn " got: " (:tkn pstate))))))
-
-
-;;; ============ Parser =============
+;;; ============ Parser ===============================================================
 ;(remove-all-methods parse)
 ;(ns-unmap *ns* 'parse)
 
@@ -188,7 +178,19 @@
         (parse :relation ?ps :lhs (:result ?ps))
         (assoc ?ps :math (->MathExp (:result ?ps)))))))
 
-(defrecord Relation [lhs rel rhs])
+(defrecord Model [items])
+
+;; <model> ::= [ <item> ; ...]
+(defparse :model
+  [pstate]
+  (as-> pstate ?ps
+    (->Model [(parse :item ?ps)])
+    (loop [ps ?ps]
+      (-> ps ?ps1
+          (assert-token ?ps1 \;)
+          (if (= :eof (look ?ps1))
+            ?ps1
+            (recur (update ?ps :items #(conj % (parse :item ?ps)))))))))
 
 
 
