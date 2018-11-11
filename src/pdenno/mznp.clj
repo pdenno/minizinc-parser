@@ -36,7 +36,7 @@
     "alldifferent"})
 
 (def ^:private mzn-syntactic
-  #{\[, \], \(, \), \=, \^, \,, \:, \;, \|, \+, \-, \<, \>})
+  #{\[, \], \(, \), \=, \^, \,, \:, \;, \|, \+, \-, \<, \>, \_})
 
 (def ^:private mzn-long-syntactic ; things that COULD be multi-character
   #{\., \,, \\, \/, \<, \>, \=, \!, \+})
@@ -74,7 +74,7 @@
           (#{\space \tab \newline} c) n
           :else (recur (inc n)))))))
 
-(defn- whitesp 
+(defn whitesp 
   "Evaluates to whitespace at head of string or empty string if none."
   [s] ; https://stackoverflow.com/questions/15020669/clojure-multiline-regular-expression
   (if s (or (nth (re-matches #"(?s)(\s+).*$" s) 1) "") ""))
@@ -86,7 +86,7 @@
 (defrecord MznTypeInstVar [str])
 
 ;;; https://www.regular-expressions.info/modifiers.html (?s) allows  .* to match all characters including line breaks. 
-(defn- token-from-string
+(defn token-from-string
   "Return a map with keys :ws, :raw and :tkn from the front of the argument string."
   [stream]
   (let [ws (whitesp stream)
@@ -139,11 +139,12 @@
   "Return true if token matches test, which is a string, character, fn or regex."
   [test tkn]
   (cond (= test tkn) true
+        (set? test) (test tkn)
         (fn? test) (test tkn)
         (instance? java.util.regex.Pattern test) (re-matches test tkn)
         :else false))
 
-(defn- consume-token
+(defn consume-token
   "Move head of :tokens to :tkn ('consuming' the old :tkn) With 2 args, test :tkn first."
   ([pstate]
    (-> pstate 
@@ -159,7 +160,7 @@
   [pstate tkn n]
   (some #(= % tkn) (subvec (:tokens pstate) 0 (min (count (:tokens pstate)) n))))
 
-(defmacro ^:private defparse [tag [pstate & keys-form] & body]
+(defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod parse ~tag [~'tag ~pstate ~@(or keys-form '(& ignore))]
     (println ~tag)
      (as-> ~pstate ~pstate
@@ -174,13 +175,26 @@
 
 ;;; Abbreviated for simple forms such as builtins. 
 (defmacro defparse-auto [tag test]
-  `(defparse ~tag
-     [pstate]
-     (-> pstate
-         (assoc :result (:tkn pstate))
-         (consume-token ~test))))
+  (let [pstate# nil]
+    `(defparse ~tag
+       [pstate#]
+       (-> pstate#
+           (assoc :result (:tkn pstate#))
+           (consume-token ~test)))))
 
-(defn- parse-dispatch [tag & keys] tag)
+;;; This is an abstraction over protecting :result while something else swapped in...
+(defmacro store [ps tag & [place]]
+  `(let [ps# ~ps
+         tag# ~tag]
+     (assoc-in ps# [:local 0 tag#]
+               (~(or place :result) ps#))))
+
+;;; ...and this is for getting the value back. 
+(defmacro recall [ps tag]
+  `(let [ps# ~ps]
+     (-> ~ps :local first ~tag)))
+
+(defn parse-dispatch [tag & keys] tag)
 
 (defmulti parse #'parse-dispatch)
 
@@ -254,14 +268,25 @@
           (= tkn :ann)                    (parse :annotation-item pstate) ; I don't think "annotation" is a keyword. 
           :else (assoc pstate :error {:expected "a MZn item" :got (:tkn pstate) :in :item}))))
 
-
 ;;; 4.1.6 Each type has one or more possible instantiations. The instantiation of a variable or value indicates
 ;;;       if it is fixed to a known value or not. A pairing of a type and instantiation is called a type-inst.
 ;;;       Reading further the "instantiation" indicates "how fixed or unfixed" its value is.
-;;;       "instance-time" as opposed to "run-time" is the model as defined in .mzn. 
-;;; <type-inst-syn-item> ::= type <ident> <annotations>= <ti-expr>
+;;;       "instance-time" as opposed to "run-time" is the model as defined in .mzn.
 
-;;; <ti-expr-and-id> ::= <ti-expr>: <ident>
+;;; <type-inst-syn-item> ::= type <ident> <annotations>= <ti-expr>
+;;;; POD I don't see where this is used
+
+;;; <ti-expr-and-id> ::= <ti-expr> : <ident>
+(defrecord MznIdDef [id ti-expr])
+(defparse :ti-expr-and-id
+  [pstate]
+  (as-> pstate ?ps
+    (parse :ti-expr ?ps)
+    (store ?ps :expr)
+    (consume-token ?ps \:)
+    (cond-> ?ps #(not (instance? MznId (:tkn ?ps))) (assoc :error {:expected "Identifier" :got (:tkn ?ps)}))
+    (assoc ?ps :result (->MznIdDef (:tkn ?ps) (recall ?ps :expr)))))
+    
 
 (defrecord MznInclude [model-part])
 ;;; <include-item> ::= include <string-literal>
@@ -269,8 +294,9 @@
   [pstate]
   (as-> pstate ?ps
     (consume-token ?ps :include)
-    (assoc ?ps :result (->MznInclude (:tkn ?ps)))
-    (consume-token ?ps #(instance? MznString %))))
+    (parse :string-literal ?ps)
+    (store ?ps :model-part)
+    (assoc ?ps :result (->MznInclude (recall ?ps :model-part)))))
 
 (defrecord MznVarDecl [type-instance id ann expr])
 ;;; <var-decl-item> ::= <ti-expr-and-id> <annotations> [ = <expr>]
@@ -280,14 +306,37 @@
 (defparse :assign-item
   [pstate]
   (as-> pstate ?ps
-    (assoc-in ?ps [:local 0 :lhs] (:tkn ?ps))
+    (assoc-in ?ps [:local 0 :lhs] (:tkn ?ps)) ; Not store, because it isn't :result.
     (consume-token ?ps #(instance? MznId %))
     (consume-token ?ps \=)
     (parse :expr ?ps)
-    (assoc ?ps :result (->MznAssignment (-> ?ps :local first :lhs) (:result ?ps)))))
+    (assoc ?ps :result (->MznAssignment (recall ?ps :lhs) (:result ?ps)))))
 
+(defrecord MznConstraint [expr])
 ;;; <constraint-item> ::= constraint <expr>
+(defparse :constraint-item
+  [pstate]
+  (as-> pstate ?ps
+    (consume-token ?ps :constraint)
+    (parse :expr ?ps)
+    (assoc ?ps :result (->MznConstraint (:result ?ps)))))
+
+(defrecord MznSolve [action expr anns])
 ;;; <solve-item> ::= solve <annotations> satisfy | solve <annotations> minimize <expr> | solve <annotations> maximize <expr>
+(defparse :constraint-item
+  [pstate]
+  (as-> pstate ?ps
+    (consume-token ?ps :solve)
+    (parse :annotations ?ps)
+    (store ?ps :anns)
+    (store ?ps :action :tkn) ; Stores value of :tkn, not :result.
+    (consume-token ?ps #{:satisfy :minimize :maximize})
+    (if (= :satisfy (recall ?ps :action))
+      (assoc ?ps :result nil)
+      (parse :expr ?ps))
+    (assoc ?ps :result (->MznSolve (recall ?ps :action)
+                                   (:result ?ps)
+                                   (recall ?ps :anns)))))
 
 ;;; <output-item> ::= output <expr> <annotation-item>
 (defparse :output-item
@@ -385,10 +434,10 @@
           (consume-token ?ps \[)
           (consume-token ?ps \])
           (parse :ti-expr-list ?ps)
-          (assoc-in ?ps [:local 0 :ti-list] (:result ?ps))
+          (store ?ps :ti-list)
           (consume-token ?ps :of)
           (parse :ti-expr ?ps)
-          (assoc ?ps :result (->MznArrayType (-> ?ps :local 0 :ti-list)
+          (assoc ?ps :result (->MznArrayType (recall ?ps :ti-list)
                                              (:result ?ps))))
         (= (:tkn pstate) :list)
         (as-> pstate ?ps
@@ -416,10 +465,9 @@
   [pstate]
   (as-> pstate ?ps
     (parse ?ps :expr-atom)
-    (assoc-in ?ps [:local 0 :atom] (:result ?ps))
+    (store ?ps :atom)
     (parse ?ps :expr-binop-tail)
-    (assoc ?ps :result (->MznExpr (-> ?ps :local first :atom)
-                                  (:result ?ps)))))
+    (assoc ?ps :result (->MznExpr (recall ?ps :atom) (:result ?ps)))))
 
 (defrecord MznExprAtom [head tail ann])
 ;;; <expr-atom> ::= <expr-atom-head> <expr-atom-tail> <annotations>
@@ -427,13 +475,13 @@
   [pstate]
   (as-> pstate ?ps
     (parse :expr-atom-head ?ps)
-    (assoc-in ?ps [:local 0 :head] (:result ?ps))
+    (store ?ps :head)
     (parse :expr-atom-tail ?ps)
-    (assoc-in ?ps [:local 0 :tail] (:result ?ps))
+    (store ?ps :tail)
     (parse :annotations ?ps)
     (assoc ?ps :result (->MznExprAtom
-                        (-> ?ps :local first :head)
-                        (-> ?ps :local first :tail)
+                        (recall ?ps :head)
+                        (recall ?ps :tail) 
                         (:result ?ps)))))
 
 (defrecord MznExprBinopTail [bin-op expr])
@@ -442,10 +490,10 @@
   [pstate]
   (as-> pstate ?ps
     (parse :bin-op ?ps)
-    (assoc-in ?ps [:local 0 :bin-op] (:result ?ps))
+    (store ?ps :bin-op)
     (parse :expr ?ps)
     (assoc ?ps :result (->MznExprBinopTail
-                        (-> ?ps :local first :bin-op)
+                        (recall ?ps :bin-op)
                         (:result ?ps)))))
 
 (defrecord MznExprUnOp [uni-op atom])
@@ -457,22 +505,34 @@
 (defparse :expr-atom-head
   [pstate]
   (let [tkn (:tkn pstate)]
-    (cond (#{\+ \- :not} tkn) ;;; <builtin-un-op> ::= not | <builtin-num-un-op>
+    (cond (builtin-un-op tkn) 
           (as-> pstate ?ps
             (consume-token ?ps)
             (parse :expr-atom ?ps)
-            (assoc ?ps :result (->MznExprUnOp tkn (:result ?ps))))
+            (assoc ?ps :result (->MznExprUnOp tkn (:result ?ps)))),
           (= \( tkn)
           (as-> pstate ?ps
-            (comsume-token ?ps)
+            (consume-token ?ps)
             (parse :expr ?ps)
-            (comsume-token ?ps \))
-            (assoc ?ps :result (->MznExpr (:result ?ps)))),)))
+            (consume-token ?ps \))
+            (assoc ?ps :result (->MznExpr (:result ?ps)))),
+          (or (instance? MznId %) (builtin-op %))
+          (parse :ident-or-quoted-op ?ps),
+          (= \_ token)
+          (-> pstate
+              consume-token
+              (assoc :result \_)),
+          (#{false true} tkn)
+          (parse :bool-literal ?ps),
+          (integer? tkn)
+          (parse :int-literal ?ps), 
+          (instance MznString tkn)
+          (parse :string-literal ?ps),)))
 
 ;;; <ident-or-quoted-op> ::= <ident> | ’<builtin-op>’
 (defparse-auto :ident-or-quoted-op #(or (instance? MznId %) (builtin-op %)))
 
-;;;<expr-atom-tail> ::= > | <array-access-tail> <expr-atom-tail<
+;;;<expr-atom-tail> ::= > | <array-access-tail> <expr-atom-tail>
 
 ;;; <num-expr> ::= <num-expr-atom> <num-expr-binop-tail>
 
@@ -481,7 +541,7 @@
 ;;; <num-expr-binop-tail> ::= [ <num-bin-op> <num-expr>]
 
 ;;; <num-bin-op> ::= <builtin-num-bin-op> | ‘<ident>‘
-(defparse-auto :num-bin--op #(or (instance? MznId %) (builtin-num-binop %)))
+(defparse-auto :num-bin--op #(or (instance? MznId %) (builtin-num-bin-op %)))
 
 ;;; <num-expr-atom-head> ::= <builtin-num-un-op> <num-expr-atom> | ( <num-expr>) | <ident-or-quoted-op> |
 ;;;                          <int-literal> | <float-literal> | <if-then-else-expr> | <case-expr> | <let-expr> |
@@ -492,6 +552,9 @@
 
 ;;; <bool-literal> ::= false | true
 (defparse-auto :bool-literal #{false true})
+(defparse-auto :int-literal #(integer? %))
+(defparse-auto :float-literal #(float? %))
+(defparse-auto :string-literal #(instance? MznString %))
 
 ;;; <set-literal> ::= { [ <expr>, ... ] }
 (defrecord MznSetLiteral [elems]) 
@@ -512,7 +575,20 @@
           (update-in ?ps1 [:local 0 :elems] conj (:result ?ps1))
           (recur (if (= (:tkn ?ps1) \,) (consume-token ?ps1 \,) ?ps1)))))))
 
-;;; <set-comp> ::= { <expr> | <comp-tail>}
+(defrecord MznSetComp [expr comp-tail])
+;;; <set-comp> ::= "{" <expr> "|" <comp-tail> "}"
+(defparse :set-comp
+  [pstate]
+  (as-> pstate ?ps
+    (consume-token ?ps \{)
+    (parse :expr ?ps)
+    (store ?ps :expr)
+    (consume-token ?ps \|)
+    (parse :comp-tail ?ps)
+    (consume-token ?ps \})
+    (assoc ?ps :result (->MznSetComp
+                        (recall ?ps :expr)
+                        (:result ?ps)))))
 
 ;;; <comp-tail> ::= <generator>, ... [ where <expr>]
 
