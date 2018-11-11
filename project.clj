@@ -4,4 +4,4 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0"]]
-  :repl-options {:init-ns pdenno.minizinc-parser/mznp})
+  :repl-options {:init-ns pdenno.mznp.mznp})
