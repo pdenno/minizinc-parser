@@ -160,12 +160,14 @@
 (defn consume-token
   "Move head of :tokens to :tkn ('consuming' the old :tkn) With 2 args, test :tkn first."
   ([pstate]
-   (cl-format *out* "~%==>consuming '~S' (no test)" (:tkn pstate))
+   (cl-format *out* "~%==>consuming(~S) ~S (no test), next = ~S"
+              (-> pstate :tags last) (:tkn pstate) (-> pstate :tokens first))
    (-> pstate 
        (assoc :tkn (or (first (:tokens pstate)) :eof))
        (assoc :tokens (vec (rest (:tokens pstate))))))
   ([pstate test]
-   (cl-format *out* "~%==>consuming '~S' test = ~A" (:tkn pstate) test)
+   (cl-format *out* "~%==>consuming(~S) ~S next = ~S test = ~A"
+              (-> pstate :tags last) (:tkn pstate) (-> pstate :tokens first) test)
    (if (match-tkn test (:tkn pstate))
         (-> pstate ; replicated (rather than called on one arg) for println debugging. 
             (assoc :tkn (or (first (:tokens pstate)) :eof))
@@ -185,7 +187,7 @@
 
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod parse ~tag [~'tag ~pstate ~@(or keys-form '(& ignore))]
-    (println ~tag)
+    (cl-format *out* "~%~A" ~tag)
      (as-> ~pstate ~pstate
        (reset! diag (update-in ~pstate [:tags] conj ~tag))
        (update-in ~pstate [:local] #(into [{}] %))
@@ -363,7 +365,7 @@
   [pstate]
   (as-> pstate ?ps
     (consume-token ?ps :solve)
-    (parse :annotations ?ps)
+    ;(parse :annotations ?ps) ; <===========================  Buggy 
     (store ?ps :anns)
     (store ?ps :action :tkn) ; Stores value of :tkn, not :result.
     (consume-token ?ps #{:satisfy :minimize :maximize})
@@ -381,7 +383,7 @@
   (as-> pstate ?ps
     (parse :ti-expr-and-id pstate)
     (store ?ps :lhs)
-    (parse :annotations pstate)
+    ;(parse :annotations pstate) ; <======================== BUG!
     (store ?ps :anns)
     (if (= (:tkn ?ps) \=)
       (as-> ?ps ?ps1
@@ -448,7 +450,7 @@
 
 (defrecord MznTypeInstExpr [var? par? expr])
 ;;; <base-ti-expr> ::= <var-par> <base-ti-expr-tail>
-;;; <var-par> ::= var | par | funny-empty-thing >
+;;; <var-par> ::= var | par | ε
 (defparse :base-ti-expr
   [pstate]
   (let [var-par? (:tkn pstate)]
@@ -498,7 +500,7 @@
 
 (defrecord MznSetType [base-type optional?])
 ;;; <set-ti-expr-tail> ::= set of <base-type>
-(defparse :base-ti-expr-tail
+(defparse :set-ti-expr-tail
   [pstate]
   (as-> pstate ?ps
       (consume-token ?ps :set)
@@ -546,9 +548,9 @@
 (defparse :expr
   [pstate]
   (as-> pstate ?ps
-    (parse ?ps :expr-atom)
-    (store ?ps :atom)
-    (parse ?ps :expr-binop-tail)
+    (parse :expr-atom ?ps)
+    (store :atom ?ps)
+    (parse :expr-binop-tail ?ps )
     (assoc ?ps :result (->MznExpr (recall ?ps :atom) (:result ?ps)))))
 
 (defrecord MznExprAtom [head tail ann])
@@ -560,11 +562,27 @@
     (store ?ps :head)
     (parse :expr-atom-tail ?ps)
     (store ?ps :tail)
-    (parse :annotations ?ps)
+    ;(parse :annotations ?ps) ; <===========================  Buggy 
     (assoc ?ps :result (->MznExprAtom
                         (recall ?ps :head)
                         (recall ?ps :tail) 
                         (:result ?ps)))))
+
+(defrecord MznExprAtomTail [array-access])
+;;;  <expr-atom-tail> ::= ε | <array-access-tail> <expr-atom-tail>
+(defparse :expr-atom-tail
+  [pstate]
+  (if (= \[ (:tkn pstate))
+    (as-> pstate ?ps
+      (assoc-in pstate [:local 0 :atoms] [])
+      (loop [ps ?ps]
+        (as-> ps ?ps1
+          (parse :array-access-tail ?ps1)
+          (update-in ?ps1 [:local 0 :atoms] conj (:result ?ps1))
+          (if (not= \[ (:tkn ?ps1))
+            (assoc ?ps1 :result (->MznExprAtomTail (-> ?ps1 :local first :atoms)))
+            (recur ?ps1)))))
+    (assoc pstate :result nil)))
 
 (defrecord MznExprBinopTail [bin-op expr])
 ;;; <expr-binop-tail> ::= [ <bin-op> <expr> ]
@@ -674,7 +692,6 @@
         :else
         (assoc pstate :error {:expected "ident-or-quoted-op" :got (:tkn pstate)})))
 
-;;;<expr-atom-tail> ::= > | <array-access-tail> <expr-atom-tail>
 
 ;;; <num-expr> ::= <num-expr-atom> <num-expr-binop-tail>
 
@@ -738,7 +755,22 @@
 
 ;;; <array-comp> ::= "[" <expr> "|" <comp-tail> "]"
 
-;;; <array-access-tail> ::= [ <expr>, ... ]
+;;; <array-access-tail> ::= "[" <expr> "," ... "]"
+(defparse :array-access-tail
+  [pstate]
+  (as-> pstate ?ps
+    (consume-token ?ps \[)
+    (assoc-in ?ps [:local 0 :exprs] [])
+    (loop [ps ?ps]
+      (if (= (:tkn ps) \])
+        (as-> ps ?ps1
+          (consume-token ?ps1)
+          (assoc ?ps1 :result (-> ?ps1 :local first :exprs)))
+        (as-> ps ?ps1
+          (parse :expr ?ps1)
+          (update-in ?ps1 [:local 0 :elems] conj (:result ?ps1))
+          (recur (if (= (:tkn ?ps1) \,) (consume-token ?ps1 \,) ?ps1)))))))
+  
 
 ;;; <ann-literal> ::= <ident> [ ( <expr>, ... ) ]
 
