@@ -17,7 +17,7 @@
 ;;;             :local is used by the macros 'store' and 'recall'. 
 ;;;   :model   - the resulting cummulative parse structure
 
-;;; Returns pstate: parse, consume-token, store, recall
+;;; Returns pstate: parse, eat-token, store, recall
 ;;; Returns something else: look, find-token
 
 ;;; The grammar implemented is 2.2.0. <Footnote 1> 
@@ -49,14 +49,14 @@
   #{\[, \], \(, \), \=, \^, \,, \:, \;, \|, \+, \-, \<, \>, \_})
 
 (def ^:private mzn-long-syntactic ; chars that COULD start a multi-character syntactic. 
-  #{\., \,, \\, \/, \<, \>, \=, \!, \+, \|, \] \:})
+  #{\., \,, \\, \/, \<, \>, \=, \!, \+, \|, \[, \], \:})
 
 ;;; POD multi-line coment (e.g. /* ... */ would go in here, sort of. 
 (defn read-long-syntactic [st ws]
   (let [len (count st)
         c0  (nth st 0)
-        c1  (and (> len 0) (nth st 1))
-        c2  (and (> len 1) (nth st 2))]
+        c1  (and (> len 1) (nth st 1))
+        c2  (and (> len 2) (nth st 2))]
     (when-let [result (cond (and (= c0 \.) (= c1 \.)) {:raw ".." :tkn :..-op}
                             (and (= c0 \-) (= c1 \>)) {:raw "->" :tkn :->-op}
                             (and (= c0 \<) (= c1 \-)) {:raw "<-" :tkn :<--op}
@@ -144,7 +144,7 @@
 (defn look
   "Returns a token, not the pstate."
   [pstate n]
-  (if (> (dec n) (count (:tokens pstate)))
+  (if (>= n (count (:tokens pstate)))
     :eof
     (nth (:tokens pstate) n)))
 
@@ -157,10 +157,10 @@
         (instance? java.util.regex.Pattern test) (re-matches test tkn)
         :else false))
 
-(defn consume-token
+(defn eat-token
   "Move head of :tokens to :tkn ('consuming' the old :tkn) With 2 args, test :tkn first."
   ([pstate]
-   (cl-format *out* "~%==>consuming(~S) ~S (no test), next = ~S"
+   (cl-format *out* "~%==>consuming(~S) ~S next = ~S (no test)"
               (-> pstate :tags last) (:tkn pstate) (-> pstate :tokens first))
    (-> pstate 
        (assoc :tkn (or (first (:tokens pstate)) :eof))
@@ -172,30 +172,34 @@
         (-> pstate ; replicated (rather than called on one arg) for println debugging. 
             (assoc :tkn (or (first (:tokens pstate)) :eof))
             (assoc :tokens (vec (rest (:tokens pstate)))))
-        (assoc pstate :error {:expected test :got (:tkn pstate) :in "consume-token"}))))
+        (-> pstate
+         (assoc :error {:expected test :got (:tkn pstate) :in "eat-token"})
+         (assoc :tkn :eof)))))
 
 (defn find-token
   "Return position if tkn is found within the item (before semicolon)."
   [pstate tkn]
-  (let [tkns (:tokens pstate)
-        pos-semi (.indexOf tkns \;)
-        pos-tkn  (.indexOf tkns tkn)]
-    (cond (== pos-semi -1) nil, ; Hmm... this is an error! Every item ends with semicolon
-          (== pos-tkn  -1) nil,
-          (< pos-semi pos-tkn) nil,
-          :else pos-tkn)))
+  (when (not-empty (:tokens pstate))
+    (let [tkns (:tokens pstate)
+          pos-semi (.indexOf tkns \;)
+          pos-tkn  (.indexOf tkns tkn)]
+      (cond (== pos-semi -1) nil, ; Hmm... this is an error! Every item ends with semicolon
+            (== pos-tkn  -1) nil,
+            (< pos-semi pos-tkn) nil,
+            :else pos-tkn))))
 
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod parse ~tag [~'tag ~pstate ~@(or keys-form '(& ignore))]
     (cl-format *out* "~%~A" ~tag)
      (as-> ~pstate ~pstate
-       (reset! diag (update-in ~pstate [:tags] conj ~tag))
+       (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
        (if (:error ~pstate) ; Stop things
          (assoc ~pstate :tkn :eof)
          (as-> ~pstate ~pstate
            ~@body))
-       (reset! diag (update-in ~pstate [:tags] pop))
+       (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
+       ;(update-in ~pstate [:tags] pop)
        (update-in ~pstate [:local] #(vec (rest %))))))
 
 ;;; Abbreviated for simple forms such as builtins. 
@@ -205,7 +209,7 @@
        [pstate#]
        (-> pstate#
            (assoc :result (:tkn pstate#))
-           (consume-token ~test)))))
+           (eat-token ~test)))))
 
 ;;; This is an abstraction over protecting :result while something else swapped in...
 (defmacro store [ps key & [from]]
@@ -229,11 +233,66 @@
   (let [pstate {:tokens (vec (rest tokens)) :tkn (first tokens) :tags [] :local []}]
     (parse :model pstate)))
 
+;;; (parse-string :var-decl-item "array[Workers, Tasks] of int: cost;")
+(defn parse-string
+  "Good for debugging"
+  [tag str]
+  (let [tokens (tokenize str)
+        pstate {:tokens (vec (rest tokens)) :tkn (first tokens) :tags [] :local []}]
+    (parse tag pstate)))
+
+(defn trynow []
+  (parse-string :expr-atom-head
+  "[|10, | 31, | 18|];")
+  #_(parse-string :var-decl-item "array[Workers, Tasks] of int: cost;"))
+
 (defn tryme []
   (-> "./data/simplest.mzn"
       slurp
       tokenize
       parse-mz))
+
+(defn parse-list
+  "Does parse parametrically for <open-char> [ <item> ','... ] <close-char>"
+  ([pstate char-open char-close]
+   (parse-list pstate char-open char-close :expr))
+  ([pstate char-open char-close parse-tag]
+   (as-> pstate ?ps
+     (eat-token ?ps char-open)
+     (assoc-in ?ps [:local 0 :items] [])
+     (loop [ps ?ps]
+       (cond
+         (= :eof (:tkn ps))
+         (assoc ps :error {:while "parsing a list" :char-open char-open :parse-tag parse-tag}),
+         (= char-close (:tkn ps))
+         (as-> ps ?ps1
+           (eat-token ?ps1)
+           (assoc ?ps1 :result (recall ?ps1 :items))),
+         :else
+         (as-> ps ?ps1
+           (parse parse-tag ?ps1)
+           (update-in ?ps1 [:local 0 :items] conj (:result ?ps1))
+           (recur (cond-> ?ps1 (= \, (:tkn ?ps1)) (eat-token \,)))))))))
+
+(defn parse-list-terminated
+  "Does parse parametrically for '[ <item> ','... ] <terminator>'. Does not eat terminator."
+  ([pstate term-fn]
+   (parse-list-terminated pstate term-fn :expr))
+  ([pstate term-fn parse-tag]
+   (as-> pstate ?ps
+     (assoc-in ?ps [:local 0 :items] [])
+     (loop [ps ?ps]
+       (cond
+         (= :eof (:tkn ps))
+         (assoc ps :error {:while "parsing a list" :parse-tag parse-tag}),
+         (term-fn (:tkn ps))
+         (as-> ps ?ps1
+           (assoc ?ps1 :result (recall ?ps1 :items))),
+         :else
+         (as-> ps ?ps1
+           (parse parse-tag ?ps1)
+           (update-in ?ps1 [:local 0 :items] conj (:result ?ps1))
+           (recur (cond-> ?ps1 (= \, (:tkn ?ps1)) (eat-token \,)))))))))
 
 ;;; ========================Production rules ====================================================
 ;;; <builtin-num-bin-op> ::= + | - | * | / | div | mod
@@ -262,12 +321,15 @@
 ;;; POD This is not complete!
 (def builtin-logic-op #{:forall :exists :xorall :clause})
 
+(def builtin-constraint #{:alldifferent :all-equal})
+
 ;;; <builtin-op> ::= <builtin-bin-op> | <builtin-un-op>
 (def builtin-op
   (sets/union builtin-bin-op
               builtin-un-op
               builtin-arithmetic-op
-              builtin-logic-op))
+              builtin-logic-op
+              builtin-constraint))
   
 (defparse-auto :builtin-op builtin-op)
 ;;;--------------------End Library Builtins ------------------------------------
@@ -283,10 +345,21 @@
       (recur 
        (as-> ps ?ps
          (parse :item ?ps)
-         (update-in ?ps [:model :items] #(conj % (:result ?ps)))
-         (consume-token ?ps \;))))))
+         (update-in ?ps [:model :items] conj (:result ?ps))
+         (eat-token ?ps \;))))))
 
-(def var-decl?  #{:bool :int :float :string :var :par})
+(defn var-decl? 
+  "Returns true if head looks like it can start a var-decl"
+  [pstate]
+  (let [tkn (:tkn pstate)]
+    (or (#{:bool :int :float :string :var :par} tkn) ; base-ti-expr
+        (instance? MznTypeInstVar tkn)               ; base-ti-expr-tail
+        (#{:set :array :list} tkn)                   ; set-ti-expr-tail, :array-ti-expr-tail
+        (= \{ tkn)                                   ; 
+        (#{:ann :opt} tkn)                           ; others
+        (instance? MznTypeInstVar tkn)               ; base-ti-expr-tail ... <ti-variable-expr-tail>
+        (find-token pstate :..-op))))                ; base-ti-expr-tail ... <num-expr> ".."  <num-expr> 
+      
 ;;; <item>::= <include-item> | <var-decl-item> | <assign-item> | <constraint-item> | <solve-item> |
 ;;;            <output-item> | <predicate-item> | <test-item> | <function-item> | <annotation-item>
 (defparse :item
@@ -294,7 +367,7 @@
   (let [tkn  (:tkn pstate)
         tkn2 (look pstate 0)]
     (cond (= tkn :include)                (parse :include-item pstate),
-          (var-decl? tkn)                 (parse :var-decl-item pstate),
+          (var-decl? pstate)              (parse :var-decl-item pstate),
           (and (instance? MznId tkn) (= tkn2 \=)) (parse :assign-item pstate),
           (= tkn :constraint)             (parse :constraint-item pstate),
           (= tkn :solve)                  (parse :solve-item pstate),
@@ -320,9 +393,9 @@
   (as-> pstate ?ps
     (parse :ti-expr ?ps)
     (store ?ps :type)
-    (consume-token ?ps \:)
-    (store ?ps :id :tkn)
-    (consume-token ?ps #(instance? MznId %))
+    (eat-token ?ps \:)
+    (parse :ident ?ps)
+    (store ?ps :id)
     (assoc ?ps :result (->MznIdDef (recall ?ps :id)
                                    (recall ?ps :type)))))
     
@@ -331,22 +404,19 @@
 (defparse :include-item
   [pstate]
   (as-> pstate ?ps
-    (consume-token ?ps :include)
+    (eat-token ?ps :include)
     (parse :string-literal ?ps)
     (store ?ps :model-part)
     (assoc ?ps :result (->MznInclude (recall ?ps :model-part)))))
-
-(defrecord MznVarDecl [type-instance id ann expr])
-;;; <var-decl-item> ::= <ti-expr-and-id> <annotations> [ "=" <expr>]
 
 ;;; <assign-item> ::= <ident> = <expr>
 (defrecord MznAssignment [lhs rhs])
 (defparse :assign-item
   [pstate]
   (as-> pstate ?ps
-    (assoc-in ?ps [:local 0 :lhs] (:tkn ?ps)) ; Not store, because it isn't :result.
-    (consume-token ?ps #(instance? MznId %))
-    (consume-token ?ps \=)
+    (parse :ident ?ps)
+    (store ?ps :lhs)
+    (eat-token ?ps \=)
     (parse :expr ?ps)
     (assoc ?ps :result (->MznAssignment (recall ?ps :lhs) (:result ?ps)))))
 
@@ -355,20 +425,20 @@
 (defparse :constraint-item
   [pstate]
   (as-> pstate ?ps
-    (consume-token ?ps :constraint)
+    (eat-token ?ps :constraint)
     (parse :expr ?ps)
     (assoc ?ps :result (->MznConstraint (:result ?ps)))))
 
 (defrecord MznSolve [action expr anns])
 ;;; <solve-item> ::= solve <annotations> satisfy | solve <annotations> minimize <expr> | solve <annotations> maximize <expr>
-(defparse :constraint-item
+(defparse :solve-item
   [pstate]
   (as-> pstate ?ps
-    (consume-token ?ps :solve)
-    ;(parse :annotations ?ps) ; <===========================  Buggy 
+    (eat-token ?ps :solve)
+    (parse :annotations ?ps)
     (store ?ps :anns)
     (store ?ps :action :tkn) ; Stores value of :tkn, not :result.
-    (consume-token ?ps #{:satisfy :minimize :maximize})
+    (eat-token ?ps #{:satisfy :minimize :maximize})
     (if (= :satisfy (recall ?ps :action))
       (assoc ?ps :result nil)
       (parse :expr ?ps))
@@ -381,13 +451,13 @@
 (defparse :var-decl-item
   [pstate]
   (as-> pstate ?ps
-    (parse :ti-expr-and-id pstate)
+    (parse :ti-expr-and-id ?ps)
     (store ?ps :lhs)
-    ;(parse :annotations pstate) ; <======================== BUG!
+    (parse :annotations ?ps)
     (store ?ps :anns)
     (if (= (:tkn ?ps) \=)
       (as-> ?ps ?ps1
-          (consume-token ?ps1)
+          (eat-token ?ps1)
           (parse :expr ?ps1)
           (assoc ?ps1 :result (->MznVarDecl (recall ?ps1 :lhs)
                                             (:result ?ps1)
@@ -397,12 +467,25 @@
                           nil
                           (recall ?ps :anns))))))
 
+(defrecord MznOutputItem [expr])
 ;;; <output-item> ::= output <expr> 
 (defparse :output-item
   [pstate]
-  (assoc pstate :error {:msg "We don't use output"}))
+  (as-> pstate ?ps
+    (eat-token ?ps :output)
+    (parse :expr ?ps)
+    (assoc ?ps :result (->MznOutputItem (:result ?ps)))))
 
+(defrecord MznAnnItem [id params])
 ;;; <annotation-item> ::= annotation <ident> <params>
+(defparse :annotation-item
+  [pstate]
+  (as-> pstate ?ps
+    (eat-token ?ps :annotation)
+    (parse :ident ?ps)
+    (store ?ps :id)
+    (parse :params ?ps)
+    (assoc ?ps :result (->MznAnnItem (recall ?ps :id) (:result ?ps)))))
 
 ;;; <annotations> ::= [ "::" <annotation> ]*
 (defparse :annotations
@@ -412,13 +495,13 @@
       (assoc-in ?ps [:local 0 :anns] [])
       (loop [ps ?ps]
         (as-> ps ?ps1
-          (consume-token ?ps1 :ann-sep)
+          (eat-token ?ps1 :ann-sep)
           (parse :annotation ?ps1)
           (update-in ?ps1 [:local 0 :anns] conj (:result ?ps1))
           (if (not= (:tkn ?ps1) :ann-sep)
             (assoc ?ps1 :result (recall ?ps1 :anns))
             (recur ?ps1)))))
-    pstate))
+    (assoc pstate :result nil)))
 
 (defrecord MznAnnotation [head tail])
 ;;; <annotation> ::= <expr-atom-head> <expr-atom-tail>
@@ -430,16 +513,69 @@
     (parse :expr-atom-tail ?ps)
     (->MznAnnotation (recall ?ps :head) (:result ?ps))))
 
+(defrecord MznPredItem [pred])
 ;;; <predicate-item> ::= predicate <operation-item-tail>
+(defparse :predicate-item
+  [pstate]
+  (as-> pstate ?ps
+    (eat-token ?ps :predicate)
+    (parse :operation-item-tail ?ps)
+    (assoc ?ps :result (->MznPredItem (:result ?ps)))))
 
+(defrecord MznTestItem [pred])
 ;;; <test-item> ::= test <operation-item-tail>
+(defparse :test-item
+  [pstate]
+  (as-> pstate ?ps
+    (eat-token ?ps :test)
+    (parse :operation-item-tail ?ps)
+    (assoc ?ps :result (->MznTestItem (:result ?ps)))))
 
-(defrecord MznFunction [])
-;;; <function-item> ::= function <ti-expr>: <operation-item-tail>
+(defrecord MznFnItem [expr op])
+;;; <function-item> ::= function <ti-expr> ":" <operation-item-tail>
+(defparse :function-item
+  [pstate]
+  (as-> pstate ?ps
+    (eat-token ?ps :function)
+    (parse :ti-expr ?ps)
+    (store ?ps :expr (:result ?ps))
+    (eat-token ?ps \:)
+    (parse :operation-item-tail ?ps)
+    (assoc ?ps :result (->MznFnItem (recall ?ps :expr)(:result ?ps)))))
 
-;;; <operation-item-tail> ::= <ident> <params> <annotations> [ = <expr>]
+(defrecord MznOpItemTail [id params expr ann])
+;;; <operation-item-tail> ::= <ident> <params> <annotations> [ "=" <expr>]
+(defparse :operation-item-tail
+  [pstate]
+  (as-> pstate ?ps
+    (parse :ident ?ps)
+    (store ?ps :id :tkn)
+    (parse :params ?ps)
+    (store ?ps :params)
+    (parse :annotations ?ps)
+    (store ?ps :anns)
+    (if (= (:tkn ?ps) \=)
+      (as-> ?ps ?ps1
+          (eat-token ?ps1)
+          (parse :expr ?ps1)
+          (assoc ?ps1 :result (->MznOpItemTail (recall ?ps1 :id)
+                                               (recall ?ps1 :params)
+                                               (:result ?ps1)
+                                               (recall ?ps1 :anns))))
+      (assoc ?ps :result (->MznOpItemTail
+                          (recall ?ps :id)
+                          (recall ?ps :params)
+                          nil
+                          (recall ?ps :anns))))))
 
-;;; <params> ::= [ ( <ti-expr-and-id>, ... ) ]
+;;; Example: function var T: enum_next(set of T: X, var T: x);
+;;; The whole thing is optional, but functions start with "function".
+;;; <params> ::= [ "(" <ti-expr-and-id>, ... ")" ]
+(defparse :params
+  [pstate]
+  (if (= \( (:tkn pstate))
+    (parse-list pstate \( \) :ti-expr-and-id)
+    (assoc pstate :result [])))
 
 ;;; ;;; B.2. Type-Inst Expressions
 
@@ -455,7 +591,7 @@
   [pstate]
   (let [var-par? (:tkn pstate)]
     (as-> pstate ?ps
-      (cond-> ?ps (#{:var :par} var-par?) (consume-token))
+      (cond-> ?ps (#{:var :par} var-par?) (eat-token))
       (parse :base-ti-expr-tail ?ps)
       (assoc ?ps :result (map->MznTypeInstExpr {:expr (:result ?ps)}))
       (cond-> ?ps (= :var var-par?) (assoc-in [:result :var?] true))
@@ -472,10 +608,8 @@
 (defparse :base-ti-expr-tail
   [pstate]
   (let [tkn (:tkn pstate)]
-    (cond (instance? MznId tkn) ; <ident>
-          (-> pstate
-              (assoc :result tkn)
-              consume-token),
+    (cond (instance? MznId tkn)              ; <ident>
+          (parse :ident pstate)
           (#{:bool :int :float :string} tkn) ; <base-type}
           (parse :base-type pstate),
           (= :set tkn)                       ; <set-ti-exp-tail>
@@ -483,14 +617,14 @@
           (instance? MznTypeInstVar tkn)     ; <ti-variable-expr-tail>
           (-> pstate
               (assoc :result tkn)
-              consume-token),
+              eat-token),
           (#{:array :list} tkn)
           (parse :array-ti-expr-tail pstate),
           (= tkn :ann)                       ; ann
           (assoc pstate :error {:msg "Annotations NYI."}),
           (#{:opt :op} tkn)                  ; opt <base-ti-expr-tail>
           (as-> pstate ?ps
-              (consume-token ?ps)
+              (eat-token ?ps)
               (parse :base-ti-expr-tail ?ps)
               (assoc-in ?ps [:result :optional?] true)),
           (= tkn \{)                        ; "{" <expr>, ... "}" 
@@ -503,8 +637,8 @@
 (defparse :set-ti-expr-tail
   [pstate]
   (as-> pstate ?ps
-      (consume-token ?ps :set)
-      (consume-token ?ps :of)
+      (eat-token ?ps :set)
+      (eat-token ?ps :of)
       (parse :base-type ?ps)
       (assoc ?ps :result (->MznSetType (:result ?ps) nil))))
           
@@ -515,19 +649,16 @@
   [pstate]
   (cond (= (:tkn pstate) :array)
         (as-> pstate ?ps
-          (consume-token ?ps :array)
-          (consume-token ?ps \[)
-          (consume-token ?ps \])
-          (parse :ti-expr-list ?ps)
+          (eat-token ?ps :array)
+          (parse-list ?ps \[ \] :ti-expr) 
           (store ?ps :ti-list)
-          (consume-token ?ps :of)
+          (eat-token ?ps :of)
           (parse :ti-expr ?ps)
-          (assoc ?ps :result (->MznArrayType (recall ?ps :ti-list)
-                                             (:result ?ps))))
+          (assoc ?ps :result (->MznArrayType (recall ?ps :ti-list) (:result ?ps) nil)))
         (= (:tkn pstate) :list)
         (as-> pstate ?ps
-          (consume-token ?ps :list)
-          (consume-token ?ps :of)
+          (eat-token ?ps :list)
+          (eat-token ?ps :of)
           (parse :ti-expr ?ps)
           (assoc ?ps :result (->MznListType (:result ?ps))))
         :else
@@ -542,16 +673,27 @@
 ;;; I don't see where in the grammar this is used!
 ;;; POD Shows "opt" not "op" on website.
 
+(defn quoted-id? [pstate]
+  (and (= \' (:tkn pstate))
+       (instance? MznId (look pstate 1))
+       (= \' (look pstate 2))))
+
 (defrecord MznExpr [atom tail])
-;;;   B.3. Expressions
+;;; I think the grammar is botched here. <expr-binop-tail> should be optional. 
+;;;  4.1.7.1 Expression Overview
 ;;; <expr> ::= <expr-atom> <expr-binop-tail>
 (defparse :expr
   [pstate]
   (as-> pstate ?ps
     (parse :expr-atom ?ps)
-    (store :atom ?ps)
-    (parse :expr-binop-tail ?ps )
-    (assoc ?ps :result (->MznExpr (recall ?ps :atom) (:result ?ps)))))
+    (store ?ps :atom)
+    (if (or (builtin-bin-op (:tkn ?ps))
+            (quoted-id? pstate))
+      (as-> ?ps ?ps1
+        (parse :expr-binop-tail ?ps1)
+        (store ?ps1 :tail))
+      (assoc-in ?ps [:local 0 :tail] nil))
+    (assoc ?ps :result (->MznExpr (recall ?ps :atom) (recall ?ps :tail)))))
 
 (defrecord MznExprAtom [head tail ann])
 ;;; <expr-atom> ::= <expr-atom-head> <expr-atom-tail> <annotations>
@@ -562,7 +704,7 @@
     (store ?ps :head)
     (parse :expr-atom-tail ?ps)
     (store ?ps :tail)
-    ;(parse :annotations ?ps) ; <===========================  Buggy 
+    (parse :annotations ?ps)
     (assoc ?ps :result (->MznExprAtom
                         (recall ?ps :head)
                         (recall ?ps :tail) 
@@ -585,7 +727,8 @@
     (assoc pstate :result nil)))
 
 (defrecord MznExprBinopTail [bin-op expr])
-;;; <expr-binop-tail> ::= [ <bin-op> <expr> ]
+;;; POD I think the grammar is botched here. The [ ] should be BNF optional, not terminals!
+;;; <expr-binop-tail> ::= "[" <bin-op> <expr> "]"
 (defparse :expr-binop-tail
   [pstate]
   (as-> pstate ?ps
@@ -599,11 +742,10 @@
 (defn ident-or-quoted-op?
   "Returns true if head satisfies <ident-or-quoted-op> ::= <ident> | ’<builtin-op>’"
   [pstate]
-  (let [tkn (:tkn pstate)
-        tkns (:tokens pstate)]
+  (let [tkn (:tkn pstate)]
     (or (instance? MznId tkn)
-        (let [tkn2 (nth tkns 0)
-              tkn3 (nth tkns 1)]
+        (let [tkn2 (look pstate 0)
+              tkn3 (look pstate 1)]
           (and (= tkn \')
                (builtin-op tkn2)
                (= tkn3 \'))))))
@@ -624,20 +766,20 @@
 (defn part1 [pstate tkn]
   (cond (builtin-un-op tkn)                     ; <builtin-un-op> <expr-atom>
         (as-> pstate ?ps
-          (consume-token ?ps)
+          (eat-token ?ps)
           (parse :expr-atom ?ps)
           (assoc ?ps :result (->MznExprUnOp tkn (:result ?ps)))),
         (= \( tkn)                              ; ( <expr )
         (as-> pstate ?ps
-          (consume-token ?ps)
+          (eat-token ?ps)
           (parse :expr ?ps)
-          (consume-token ?ps \))
+          (eat-token ?ps \))
           (assoc ?ps :result (->MznExpr (:result ?ps)))),
         (ident-or-quoted-op? pstate)           ; <ident-or-quoted-op>
         (parse :ident-or-quoted-op pstate),
         (= \_ tkn)                             ; _
         (-> pstate                              
-            consume-token
+            eat-token
             (assoc :result \_)),
         (#{false true} tkn)                    ; bool-literal
         (parse :bool-literal pstate),
@@ -661,8 +803,8 @@
           (and (= tkn \[) (or (not pos2) (and pos3 (< pos3 pos2))))   ; <array-literal>
           (parse :array-literal pstate),
           (= tkn \[)                                                  ; <array-comp>
-          (parse :array-comp pstate)
-          (= tkn :2d-array-open pstate)                               ; <array-literal-2d>
+          (parse :array-comp pstate),
+          (= tkn :2d-array-open)                                      ; <array-literal-2d>
           (parse :array-literal-2d pstate),
           (= tkn :ann-sep) ; POD needs investigation!                 ; <ann-literal>
           (parse :ann-literal pstate),
@@ -676,38 +818,64 @@
           (parse :call-expr pstate))))
 
 (defrecord MznQuotedOp [op])
+;;; 4.1.7.3. Expression Atoms suggests that they are serious about this.
+;;; BTW whitespace is not allowed between the quotes. POD Currently impossible to enforce.
 ;;; <ident-or-quoted-op> ::= <ident> | "'" <builtin-op> "'"
 (defparse :ident-or-quoted-op
   [pstate]
   (cond (instance? MznId (:tkn pstate))
-        (-> pstate
-            (assoc :result (:tkn pstate))
-            (consume-token))
+        (parse :ident pstate),
         (ident-or-quoted-op? pstate)
         (as-> pstate ?ps
-          (consume-token ?ps \')
+          (eat-token ?ps \')
           (assoc ?ps :result (->MznQuotedOp (:tkn ?ps)))
-          (consume-token ?ps builtin-op)
-          (consume-token ?ps \'))
+          (eat-token ?ps builtin-op)
+          (eat-token ?ps \'))
         :else
         (assoc pstate :error {:expected "ident-or-quoted-op" :got (:tkn pstate)})))
 
+(defparse :ident
+  [pstate]
+  (as-> pstate ?ps
+    (assoc ?ps :result (:tkn ?ps))
+    (eat-token ?ps #(instance? MznId %))))
 
-;;; <num-expr> ::= <num-expr-atom> <num-expr-binop-tail>
+;;; <num-expr> ::= <num-expr-atom> <num-expr-binop-tail>   ; Just like <expr>
+(defparse :num-expr
+  [ps] 
+  (parse :expr ps)) ; POD Fix this. 
 
-;;; <num-expr-atom> ::= <num-expr-atom-head> <expr-atom-tail> <annotations>
+;;; <num-expr-atom> ::= <num-expr-atom-head> <expr-atom-tail> <annotations> ; Much like <expr-atom>
+(defparse :num-expr-atom
+  [ps]
+  (parse :expr-atom ps)) ; POD Fix this. 
+
 
 ;;; <num-expr-binop-tail> ::= [ <num-bin-op> <num-expr>]
+(defparse :num-expr-binop-tail
+  [ps]
+  (parse :expr-binop-tail ps)) ; POD Fix this. 
+
 
 ;;; <num-bin-op> ::= <builtin-num-bin-op> | ‘<ident>‘
-(defparse-auto :num-bin--op #(or (instance? MznId %) (builtin-num-bin-op %)))
+(defparse-auto :num-bin-op #(or (instance? MznId %) (builtin-num-bin-op %)))
 
 ;;; <num-expr-atom-head> ::= <builtin-num-un-op> <num-expr-atom> | ( <num-expr> ) | <ident-or-quoted-op> |
 ;;;                          <int-literal> | <float-literal> | <if-then-else-expr> | <case-expr> | <let-expr> |
 ;;;                          <call-expr> | <gen-call-expr>
 
 ;;; <bin-op> ::= <builtin-bin-op> | ‘<ident>‘
-(defparse-auto :bin-op #(or (instance? MznId %) (builtin-bin-op %)))
+(defparse :bin-op
+  [pstate]
+  (if (builtin-bin-op (:tkn pstate))
+    (as-> pstate ?ps
+      (assoc ?ps :result (:tkn ?ps))
+      (eat-token ?ps))
+    (as-> pstate ?ps
+      (eat-token ?ps \')
+      (parse :ident ?ps)
+      (assoc ?ps :result (->MznQuotedOp (:result ?ps)))
+      (eat-token ?ps \'))))
 
 ;;; <bool-literal> ::= false | true
 (defparse-auto :bool-literal #{false true})
@@ -715,79 +883,178 @@
 (defparse-auto :float-literal #(float? %))
 (defparse-auto :string-literal #(instance? MznString %))
 
-;;; <set-literal> ::= { [ <expr>, ... ] }
+;;; <set-literal> ::= "{" [ <expr>, ... ] "}"
 (defrecord MznSetLiteral [elems]) 
 ;;; "{" <expr>, ... "}"
 ;;; (parse :set-literal {:tkn \{ :tokens [1 \, 2 \, 3 \}] })
 (defparse :set-literal
   [pstate]
   (as-> pstate ?ps
-    (consume-token ?ps \{)
-    (assoc-in ?ps [:local 0 :elems] [])
-    (loop [ps ?ps]
-      (if (= (:tkn ps) \})
-        (as-> ps ?ps1
-          (consume-token ?ps1)
-          (assoc ?ps1 :result (->MznSetLiteral (-> ?ps1 :local first :elems))))
-        (as-> ps ?ps1
-          (parse :expr ?ps1)
-          (update-in ?ps1 [:local 0 :elems] conj (:result ?ps1))
-          (recur (if (= (:tkn ?ps1) \,) (consume-token ?ps1 \,) ?ps1)))))))
+    (parse-list ?ps \{ \} :expr)
+    (assoc ?ps :result (->MznSetLiteral (:result ?ps)))))
 
 (defrecord MznSetComp [expr comp-tail])
 ;;; <set-comp> ::= "{" <expr> "|" <comp-tail> "}"
 (defparse :set-comp
   [pstate]
   (as-> pstate ?ps
-    (consume-token ?ps \{)
+    (eat-token ?ps \{)
     (parse :expr ?ps)
     (store ?ps :expr)
-    (consume-token ?ps \|)
+    (eat-token ?ps \|)
     (parse :comp-tail ?ps)
-    (consume-token ?ps \})
+    (eat-token ?ps \})
     (assoc ?ps :result (->MznSetComp
                         (recall ?ps :expr)
                         (:result ?ps)))))
 
+(defrecord MznArray [elems])
 ;;; <array-literal> ::= "[" [ <expr>, ... ] "]"
+(defparse :array-literal
+  [pstate]
+  (as-> pstate ?ps
+    (parse-list ?ps \[ \])
+    (assoc ?ps :result (->MznArray (:result ?ps)))))
 
+
+;;; [|10, 20, 13, |22, 11, 31, |14, 20, 18|] -- Note the extra commas!
+(defrecord Mzn2dArray [sublists])
 ;;; <array-literal-2d> ::= "[|" [ (<expr>, ... ) "|" ... ] "|]"
+(defparse :array-literal-2d
+  [pstate]
+  (as-> pstate ?ps
+    (eat-token ?ps :2d-array-open)
+    (assoc-in ?ps [:local 0 :sublists] [])
+    (loop [ps ?ps]
+      (as-> ps ?ps1
+        (parse-list-terminated ?ps1 #(or (= % \|) (= % :2d-array-close)))
+        (update-in ?ps1 [:local 0 :sublists] conj (:result ?ps1))
+        (if (= (:tkn ?ps1) :2d-array-close)
+          (as-> ?ps1 ?ps2
+            (assoc ?ps2 :result (->Mzn2dArray (recall ?ps2 :sublists)))
+            (eat-token ?ps2 :2d-array-close))
+          (recur (eat-token ?ps1 \|)))))))
 
+(defrecord MznArrayComp [expr tail])
 ;;; <array-comp> ::= "[" <expr> "|" <comp-tail> "]"
+(defparse :array-comp
+  [pstate]
+  (as-> pstate ?ps
+    (eat-token ?ps \[)
+    (parse :expr ?ps)
+    (store ?ps :expr)
+    (eat-token ?ps \|)
+    (parse :comp-tail ?ps)
+    (assoc ?ps :result (->MznArrayComp (recall ?ps :expr) (:result ?ps)))
+    (eat-token ?ps \])))
 
 ;;; <array-access-tail> ::= "[" <expr> "," ... "]"
 (defparse :array-access-tail
   [pstate]
+  (parse-list pstate \[ \]))
+
+(defrecord MznAnnLiteral [ident exprs])
+;;; <ann-literal> ::= <ident> [ "(" <expr> "," ... ")" ]
+(defparse :ann-literal
+  [pstate]
   (as-> pstate ?ps
-    (consume-token ?ps \[)
-    (assoc-in ?ps [:local 0 :exprs] [])
-    (loop [ps ?ps]
-      (if (= (:tkn ps) \])
-        (as-> ps ?ps1
-          (consume-token ?ps1)
-          (assoc ?ps1 :result (-> ?ps1 :local first :exprs)))
-        (as-> ps ?ps1
+    (parse :ident ?ps)
+    (store ?ps :id)
+    (if (= \( (:tkn ?ps))
+      (as-> ?ps ?ps1
+        (parse-list ?ps1 \( \))
+        (assoc ?ps1 :result (->MznAnnLiteral (recall ?ps1 :id) (:result ?ps1))))
+      (assoc ?ps :result (->MznAnnLiteral (recall ?ps :id) [])))))
+
+(defrecord MznElseIf [then else])
+(defrecord MznIfExpr [condition then else elseif])
+;;; <if-then-else-expr> ::= "if" <expr> "then" <expr> ("elseif" <expr> "then" <expr>)* "else" <expr> "endif"
+(defparse :if-then-else-expr
+  [pstate]
+  (as-> pstate ?ps
+    (eat-token ?ps :if)
+    (parse :expr ?ps)
+    (store ?ps :condition)
+    (eat-token ?ps :then)
+    (parse :expr ?ps)
+    (assoc-in ?ps [:local 0 :elifs] [])
+    (store ?ps :then)
+    (if (= :elseif (:tkn ?ps))
+      (loop [ps ?ps]
+        (as-> ?ps ?ps1
+          (eat-token ?ps1 :elseif)
           (parse :expr ?ps1)
-          (update-in ?ps1 [:local 0 :elems] conj (:result ?ps1))
-          (recur (if (= (:tkn ?ps1) \,) (consume-token ?ps1 \,) ?ps1)))))))
-  
+          (store ?ps1 :elif-cond)
+          (eat-token ?ps1 :then)
+          (parse :expr ?ps1)
+          (update-in ?ps1 [:local 0 :elifs] conj (->MznElseIf (recall ?ps1 :elif-cond) (:result ?ps)))
+          (if (not= :elseif (:tkn ?ps1))
+            ?ps1
+            (recur ?ps1))))
+      (eat-token ?ps :else))
+    (parse :expr ?ps)
+    (assoc ?ps :result (->MznIfExpr (recall ?ps :condition)
+                                    (recall ?ps :then)
+                                    (:result ?ps)
+                                    (recall ?ps :elseif)))
+    (eat-token ?ps :endif)))
 
-;;; <ann-literal> ::= <ident> [ ( <expr>, ... ) ]
 
-;;; <if-then-else-expr> ::= "if" <expr> "then" <expr>( "elseif" <expr> "then" <expr>)* "else" <expr> "endif"
+(defrecord MznCallExpr [op args])
+;;; <call-expr> ::= <ident-or-quoted-op> [ "(" <expr>, ... ")" ]
+;;; This is called for e.g. constraint alldifferent(foo); :alldifferent is a builtin-op
+;;; POD So I'm doing it different!
+(defparse :call-expr
+  [pstate]
+  (as-> pstate ?ps
+    (store ?ps :op :tkn)
+    (eat-token ?ps builtin-op)
+    (if (= \( (:tkn ?ps))
+      (as-> ?ps ?ps1
+        (parse-list ?ps1 \( \))
+        (assoc ?ps1 :result (->MznCallExpr (recall ?ps1 :op) (:result ?ps1))))
+      (assoc ?ps :result (->MznCallExpr (recall ?ps :op) nil)))))
 
-;;; <call-expr> ::= <ident-or-quoted-op> [ ( <expr>, ... ) ]
-
+(defrecord MznLetExpr [items expr])
 ;;; <let-expr> ::= "let" { <let-item>; ... } "in" <expr>
+(defparse :let-expr
+  [pstate]
+  (as-> pstate ?ps
+    (eat-token ?ps :let)
+    (parse-list-terminated ?ps #(= :in %) :let-item)
+    (store ?ps :items)
+    (eat-token ?ps :in)
+    (parse :expr ?ps)
+    (assoc ?ps :result (->MznLetExpr (recall ?ps :items) (:result ?ps)))))
+    
 
 ;;; <let-item> ::= <var-decl-item> | <constraint-item>
+(defparse :let-item
+  [pstate]
+  (cond (= :constraint (:tkn pstate)) (parse :constraint-item pstate)
+        (var-decl? pstate) (parse :var-decl-item pstate)
+        :else (assoc pstate :error {:expected "let-item" :got (:tkn pstate)})))
 
-
+(defrecord MznCompTail [generators where-expr])
 ;;; <comp-tail> ::= <generator>, ... [ "where" <expr>]
+(defparse :comp-tail
+  [pstate]
+  (as-> pstate ?ps
+    (parse-list-terminated ?ps #(= :where %) :generator)
+    (store ?ps :generators)
+    (eat-token ?ps :where)
+    (parse :expr ?ps)
+    (assoc ?ps :result (->MznCompTail (recall ?ps :generators) (:result ?ps)))))
 
-;;; <generator> ::= <ident>, ... "in" <expr>
-
-
+(defrecord MznGenerator [ids expr])
+;;; <generator> ::= <ident> "," ... "in" <expr>
+(defparse :generator
+  [pstate]
+  (as-> pstate ?ps
+    (parse-list-terminated ?ps  #(= :in %) :ident)
+    (store ?ps :ids)
+    (parse :expr ?ps)
+    (assoc ?ps :result (->MznGenerator (recall ?ps :ids) (:result ?ps)))))
 
 ;;; <gen-call-expr> ::= <ident-or-quoted-op> "(" <comp-tail> ")" "(" <expr> ")"
 ;;; See https://www.minizinc.org/doc-2.2.0/en/spec.html#spec-generator-call-expressions
@@ -800,17 +1067,20 @@
   [pstate]
   (as-> pstate ?ps
     (store ?ps :logic-op :tkn)
-    (consume-token ?ps builtin-logic-op)
-    (consume-token ?ps \()
+    (eat-token ?ps builtin-logic-op)
+    (eat-token ?ps \()
     (parse :comp-tail ?ps)
     (store ?ps :quantifier)
-    (consume-token ?ps \))
-    (consume-token ?ps \()
+    (eat-token ?ps \))
+    (eat-token ?ps \()
     (parse :expr ?ps)
     (assoc :result (->MzGenCallExpr
                     (recall ?ps :logic-op)
                     (recall ?ps :quantifierp)
                     (:result ?ps)))))
+
+;;;(defrecord MznCallExpr [op args])
+;;; <call-expr> ::= <ident-or-quoted-op> [ "(" <expr> "," ... ")" ]
 
 
 ;;;=== General =========================
