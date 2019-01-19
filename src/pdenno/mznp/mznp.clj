@@ -3,15 +3,15 @@
             [clojure.string :as str]
             [clojure.set    :as sets]))
 
-(use 'clojure.inspector) ; POD Temporary
-
 ;;; Purpose: Parse minizinc .mzn. 
-;;; The defparse parsing functions pass around complete state. 
+;;; The 'defparse' parsing functions pass around complete state. 
 ;;; The 'parse state' (AKA pstate) is a map with keys:
 ;;;   :result  - the parse structure from the most recent call to (parse :<some-rule-tag> pstate)
 ;;;   :tokens  - tokenized content that needs to be parsed into :model
 ;;;   :tags    - a stack describing where in the grammar it is parsing (used for debugging)
-;;;   :tkn     - current token, not yet consumed. 
+;;;   :tkn     - current token, not yet consumed.
+;;;   :line    - line in which token appears.
+;;;   :col     - column where token starts. 
 ;;;   :error   - non-nil when things go wrong
 ;;;   :local   - temporarily stored parse content used later to form a complete grammar element. It is a vector of maps.
 ;;;             :local is used by the macros 'store' and 'recall'. 
@@ -45,11 +45,11 @@
     ;; builtins.logic
     "forall", "exists", "xorall", "clause", "iffall"})
 
-(def ^:private mzn-syntactic ; chars that are valid syntax. 
-  #{\[, \], \(, \), \=, \^, \,, \:, \;, \|, \+, \-, \<, \>, \_})
-
 (def ^:private mzn-long-syntactic ; chars that COULD start a multi-character syntactic. 
   #{\., \,, \\, \/, \<, \>, \=, \!, \+, \|, \[, \], \:})
+
+(def ^:private mzn-syntactic ; chars that are valid tokens in themselves. 
+  #{\[, \], \(, \), \=, \^, \,, \:, \;, \|, \*, \+, \-, \<, \>, \_})
 
 ;;; POD multi-line coment (e.g. /* ... */ would go in here, sort of. 
 (defn read-long-syntactic [st ws]
@@ -101,7 +101,7 @@
 ;;; https://www.regular-expressions.info/modifiers.html (?s) allows  .* to match all characters including line breaks. 
 (defn token-from-string
   "Return a map with keys :ws, :raw and :tkn from the front of the argument string."
-  [stream]
+  [stream line-num]
   (let [ws (whitesp stream)
         s (subs stream (count ws))
         c (first s)]
@@ -109,7 +109,7 @@
     (or  (and (empty? s) {:ws ws :raw "" :tkn :eof})                    ; EOF
          (and (mzn-long-syntactic c) (read-long-syntactic s ws))        ; ++, <=, == etc. 
          (and (mzn-syntactic c) {:ws ws :raw (str c) :tkn c})           ; literal syntactic char.
-         (when-let [[_ num] (re-matches #"(?s)(\d+(\.\d+e[+-]?\d+)?).*" s)] 
+         (when-let [[_ num] (re-matches #"(?s)(\d+(\.\d+e[+-]?\d+)?).*" s)]
            {:ws ws :raw num :tkn (read-string num)}),                   ; number
          (when-let [[_ id] (re-matches #"(?s)('[^']*').*" s)]           ; identifer type 2 POD Need's work. 
            {:ws ws :raw id :tkn (->MznId id)})
@@ -119,26 +119,33 @@
            {:ws ws :raw cm :tkn (->MznEOLcomment cm)})
          (when-let [[_ tivar] (re-matches #"(?s)(\$[A-Za-z][A-Za-z0-9_]*)" s)]
            {:ws ws :raw tivar :tkn (->MznTypeInstVar tivar)})
-         (when-let [pos (position-break s)]
-           (let [word (subs s 0 pos)]
-             ;(cl-format *out* "~%word = ~S" word)
+         (let [pos (position-break s)
+               word (subs s 0 (or pos (count s)))]
             (or 
              (and (mzn-keywords word) {:ws ws :raw word :tkn (keyword word)})  
              (when-let [[_ id] (re-matches #"^([a-zA-Z][A-Za-z0-9_]*).*" word)]     ; identifer type 1 
-               {:ws ws :raw id :tkn (->MznId id)}))))
-         (throw (ex-info "Char starts no known token: " {:raw c})))))
+               {:ws ws :raw id :tkn (->MznId id)})))
+         (throw (ex-info "Char starts no known token: " {:raw c :line line-num})))))
 
 (defn tokenize
-  "Return a vector of tokens"
+  "Return a vector of tokens. A token is a map with keys :tkn, :line :col."
   [stream]
   (loop [s stream 
-         tkns []]
-    (let [lex (token-from-string s)]
+         tkns []
+         line 1
+         col 1]
+    (let [lex (token-from-string s line) ; Returns a map with keys :ws :raw and :tkn.
+          new-lines (count (re-seq #"\n" (:ws lex))) ; :ws is in front of token. 
+          col (if (> new-lines 0)
+                (- (count (:ws lex)) (str/last-index-of (:ws lex) "\n"))
+                (+ (count (:ws lex)) col))]
       (if (= :eof (:tkn lex))
-        (conj tkns :eof)
+        (conj tkns {:tkn :eof :line line :col col})
         (recur
          (subs s (+ (count (:raw lex)) (count (:ws lex))))
-         (conj tkns (:tkn lex)))))))
+         (conj tkns {:tkn (:tkn lex) :line (+ line new-lines) :col col})
+         (+ line new-lines)
+         (+ col (count (:raw lex))))))))
 
 ;;; ============ Parser ===============================================================
 (defn look
@@ -160,22 +167,28 @@
 (defn eat-token
   "Move head of :tokens to :tkn ('consuming' the old :tkn) With 2 args, test :tkn first."
   ([pstate]
-   (cl-format *out* "~%==>consuming(~S) ~S next = ~S (no test)"
-              (-> pstate :tags last) (:tkn pstate) (-> pstate :tokens first))
-   (-> pstate 
-       (assoc :tkn (or (first (:tokens pstate)) :eof))
-       (assoc :tokens (vec (rest (:tokens pstate))))))
+   (let [lex-tkn (-> pstate :tokens first)]
+     (cl-format *out* "~%==>consuming(~S (~S ~S)) ~S next = ~S (no test)"
+                (-> pstate :tags last) (:line lex-tkn) (:col lex-tkn) (:tkn lex-tkn) (-> pstate :tokens first :tkn))
+     (-> pstate 
+       (assoc :tkn (or (:tkn lex-tkn) :eof))
+       (assoc :line (:line lex-tkn))
+       (assoc :col  (:col lex-tkn))
+       (assoc :tokens (vec (rest (:tokens pstate)))))))
   ([pstate test]
-   (cl-format *out* "~%==>consuming(~S) ~S next = ~S test = ~A"
-              (-> pstate :tags last) (:tkn pstate) (-> pstate :tokens first) test)
-   (if (match-tkn test (:tkn pstate))
-        (-> pstate ; replicated (rather than called on one arg) for println debugging. 
-            (assoc :tkn (or (first (:tokens pstate)) :eof))
-            (assoc :tokens (vec (rest (:tokens pstate)))))
-        (-> pstate
-         (assoc :error {:expected test :got (:tkn pstate) :in "eat-token"})
-         (assoc :tkn :eof)))))
-
+   (let [lex-tkn (-> pstate :tokens first)]
+     (cl-format *out* "~%==>consuming(~S (~S ~S)) ~S next = ~S test = ~A"
+                (-> pstate :tags last) (:line lex-tkn) (:col lex-tkn) (:tkn pstate) (-> pstate :tokens first :tkn) test)
+     (if (match-tkn test (:tkn pstate))
+       (-> pstate ; replicated (rather than called on one arg) for println debugging. 
+           (assoc :tkn (or (:tkn lex-tkn) :eof))
+           (assoc :line (:line lex-tkn))
+           (assoc :col  (:col lex-tkn))
+           (assoc :tokens (vec (rest (:tokens pstate)))))
+       (-> pstate
+           (assoc :error {:expected test :got (:tkn pstate) :in "eat-token" :line (:line lex-tkn) :col (:col lex-tkn)})
+           (assoc :tkn :eof))))))
+  
 (defn find-token
   "Return position if tkn is found within the item (before semicolon)."
   [pstate tkn]
@@ -199,7 +212,6 @@
          (as-> ~pstate ~pstate
            ~@body))
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
-       ;(update-in ~pstate [:tags] pop)
        (update-in ~pstate [:local] #(vec (rest %))))))
 
 ;;; Abbreviated for simple forms such as builtins. 
@@ -230,7 +242,7 @@
 (defn parse-mz
   "Top-level parsing from tokenized stream TOKENS."
   [tokens]
-  (let [pstate {:tokens (vec (rest tokens)) :tkn (first tokens) :tags [] :local []}]
+  (let [pstate {:tokens (-> tokens rest vec) :tkn (-> tokens first :tkn) :tags [] :local []}]
     (parse :model pstate)))
 
 ;;; (parse-string :var-decl-item "array[Workers, Tasks] of int: cost;")
@@ -241,16 +253,22 @@
         pstate {:tokens (vec (rest tokens)) :tkn (first tokens) :tags [] :local []}]
     (parse tag pstate)))
 
-(defn trynow []
-  (parse-string :expr-atom-head
+(parse-string :expr-atom-head "[|10, | 31, | 18|];" )
+(parse-string :var-decl-item  "array[Workers, Tasks] of int: cost;")
+(defn trynow [str elem]
+  (parse-string elem str)
   "[|10, | 31, | 18|];")
-  #_(parse-string :var-decl-item "array[Workers, Tasks] of int: cost;"))
 
-(defn tryme []
-  (-> "./data/simplest.mzn"
-      slurp
-      tokenize
-      parse-mz))
+
+;;;(tryme "./data/assignment.mzn")
+;;;(tryme "./data/simplest.mzn")
+(defn tryme
+  ([] (tryme "./data/opt5.mzn"))
+  ([filename]
+   (-> filename
+       slurp
+       tokenize
+       parse-mz)))
 
 (defn parse-list
   "Does parse parametrically for <open-char> [ <item> ','... ] <close-char>"
@@ -263,7 +281,7 @@
      (loop [ps ?ps]
        (cond
          (= :eof (:tkn ps))
-         (assoc ps :error {:while "parsing a list" :char-open char-open :parse-tag parse-tag}),
+         (assoc ps :error {:while "parsing a list" :char-open char-open :parse-tag parse-tag :line @line-num}),
          (= char-close (:tkn ps))
          (as-> ps ?ps1
            (eat-token ?ps1)
@@ -284,7 +302,7 @@
      (loop [ps ?ps]
        (cond
          (= :eof (:tkn ps))
-         (assoc ps :error {:while "parsing a list" :parse-tag parse-tag}),
+         (assoc ps :error {:while "parsing a list" :parse-tag parse-tag :line @line-num}),
          (term-fn (:tkn ps))
          (as-> ps ?ps1
            (assoc ?ps1 :result (recall ?ps1 :items))),
@@ -343,10 +361,14 @@
     (if (= :eof (:tkn ps))
       ps
       (recur 
-       (as-> ps ?ps
-         (parse :item ?ps)
-         (update-in ?ps [:model :items] conj (:result ?ps))
-         (eat-token ?ps \;))))))
+       (if (instance? MznEOLcomment (:tkn ps))
+         (as-> ps ?ps
+           (update ?ps :model conj (:tkn ?ps))
+           (eat-token ?ps))
+         (as-> ps ?ps
+           (parse :item ?ps)
+           (update ?ps :model conj (:result ?ps))
+           (eat-token ?ps \;)))))))
 
 (defn var-decl? 
   "Returns true if head looks like it can start a var-decl"
@@ -376,7 +398,7 @@
           (= tkn :test)                   (parse :test-item pstate),
           (= tkn :function)               (parse :function-item pstate),
           (= tkn :ann)                    (parse :annotation-item pstate) ; I don't think "annotation" is a keyword. 
-          :else (assoc pstate :error {:expected "a MZn item" :got (:tkn pstate) :in :item}))))
+          :else (assoc pstate :error {:expected "a MZn item" :got (:tkn pstate) :in :item :line @line-num}))))
 
 ;;; 4.1.6 Each type has one or more possible instantiations. The instantiation of a variable or value indicates
 ;;;       if it is fixed to a known value or not. A pairing of a type and instantiation is called a type-inst.
@@ -621,7 +643,7 @@
           (#{:array :list} tkn)
           (parse :array-ti-expr-tail pstate),
           (= tkn :ann)                       ; ann
-          (assoc pstate :error {:msg "Annotations NYI."}),
+          (assoc pstate :error {:msg "Annotations NYI." :line @line-num}),
           (#{:opt :op} tkn)                  ; opt <base-ti-expr-tail>
           (as-> pstate ?ps
               (eat-token ?ps)
@@ -630,7 +652,7 @@
           (= tkn \{)                        ; "{" <expr>, ... "}" 
           (parse :set-literal pstate),
           (find-token pstate :..-op)        ; <num-expr> ".."  <num-expr> ; call it a range expression
-          (assoc pstate :error {:msg "<num-expr> .. <num-expr> NYI."}))))
+          (assoc pstate :error {:msg "<num-expr> .. <num-expr> NYI." :line @line-num}))))
 
 (defrecord MznSetType [base-type optional?])
 ;;; <set-ti-expr-tail> ::= set of <base-type>
@@ -664,6 +686,7 @@
         :else
         (assoc pstate :error {:expected "array or list"
                               :got (:tkn pstate)
+                              :line @line-num
                               :in :array-ti-expr-tail})))
 
 ;;; <ti-variable-expr-tail> ::= $[A-Za-z][A-Za-z0-9_]*
@@ -832,7 +855,7 @@
           (eat-token ?ps builtin-op)
           (eat-token ?ps \'))
         :else
-        (assoc pstate :error {:expected "ident-or-quoted-op" :got (:tkn pstate)})))
+        (assoc pstate :error {:expected "ident-or-quoted-op" :got (:tkn pstate) :line @line-num})))
 
 (defparse :ident
   [pstate]
@@ -1033,7 +1056,7 @@
   [pstate]
   (cond (= :constraint (:tkn pstate)) (parse :constraint-item pstate)
         (var-decl? pstate) (parse :var-decl-item pstate)
-        :else (assoc pstate :error {:expected "let-item" :got (:tkn pstate)})))
+        :else (assoc pstate :error {:expected "let-item" :got (:tkn pstate) :line @line-num})))
 
 (defrecord MznCompTail [generators where-expr])
 ;;; <comp-tail> ::= <generator>, ... [ "where" <expr>]

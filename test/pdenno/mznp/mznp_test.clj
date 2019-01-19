@@ -1,7 +1,11 @@
-(ns pdenno.minizinc-parser-test
+(ns pdenno.mznp.mznp-test
   (:require [clojure.test :refer :all]
-            [pdenno.minizinc-parser :refer :all]))
+            [pdenno.mznp.mznp :refer :all])
+  (:import (pdenno.mznp.mznp
+            MznVarDecl)))
 
-(deftest a-test
-  (testing "FIXME, I fail."
-    (is (= 0 1))))
+(deftest single-lines
+  (let [parse-ok? #(-> (parse-string %1 %2) :error not)]
+  (testing "type returned from parsing a short-ish string with a small grammar element."
+    (is (instance? MznVarDecl  (parse-ok? :var-decl-item  " array[Workers, Tasks] of int: cost;"))))))
+
