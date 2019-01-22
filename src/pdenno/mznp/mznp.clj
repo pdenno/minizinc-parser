@@ -29,6 +29,7 @@
 ;;;             I am updating to 2.2.0 wherever I find discrepancies. 
 
 (def ^:private diag (atom nil))
+(def debugging? (atom false))
 
 ;;; ============ Lexer ===============================================================
 ;;; POD Could add to this from library...
@@ -115,7 +116,7 @@
          (when-let [[_ id] (re-matches #"(?s)('[^']*').*" s)]           ; identifer type 2 POD Need's work. 
            {:ws ws :raw id :tkn (->MznId id)})
          (when-let [[_ st] (re-matches #"(?s)(\"[^\"]*\").*" s)]        ; string literal
-           {:ws ws :raw st :tkn (->MznString st)})
+           {:ws ws :raw st :tkn (->MznString (read-string st))})
          (when-let [[_ cm] (re-matches #"(?s)(\%[^\n]*).*" s)]          ; EOL comment
            {:ws ws :raw cm :tkn (->MznEOLcomment cm)})
          (when-let [[_ tivar] (re-matches #"(?s)(\$[A-Za-z][A-Za-z0-9_]*)" s)]
@@ -168,18 +169,22 @@
 (defn eat-token
   "Move head of :tokens to :tkn ('consuming' the old :tkn) With 2 args, test :tkn first."
   ([pstate]
-   (let [lex-tkn (-> pstate :tokens first)]
-     (cl-format *out* "~%==>consuming(~S (~S ~S)) ~S next = ~S (no test)"
-                (-> pstate :tags last) (:line lex-tkn) (:col lex-tkn) (:tkn lex-tkn) (-> pstate :tokens first :tkn))
-     (-> pstate 
-       (assoc :tkn (or (:tkn lex-tkn) :eof))
-       (assoc :line (:line lex-tkn))
-       (assoc :col  (:col lex-tkn))
-       (assoc :tokens (vec (rest (:tokens pstate)))))))
+   (when @debugging?
+     (cl-format *out* "~%==>consuming ~S in (~S (~S ~S)) next = ~S"
+                (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) (-> pstate :tokens second :tkn)))
+   (let [next-up (-> pstate :tokens second)]
+     (-> pstate
+         (assoc :tkn  (or (:tkn  next-up) :eof))
+         (assoc :line (:line next-up))
+         (assoc :col  (:col next-up))
+         (assoc :tokens (vec (rest (:tokens pstate)))))))
+
+
   ([pstate test]
    (let [lex-tkn (-> pstate :tokens first)]
-     (cl-format *out* "~%==>consuming(~S (~S ~S)) ~S next = ~S test = ~A"
-                (-> pstate :tags last) (:line lex-tkn) (:col lex-tkn) (:tkn pstate) (-> pstate :tokens first :tkn) test)
+     (when @debugging?
+       (cl-format *out* "~%==>consuming ~S in (~S (~S ~S)) test = ~A next = ~S "
+                  (:tkn lex-tkn) (-> pstate :tags last) (:line lex-tkn) (:col lex-tkn)  test (-> pstate :tokens second :tkn)))
      (if (match-tkn test (:tkn pstate))
        (-> pstate ; replicated (rather than called on one arg) for println debugging. 
            (assoc :tkn (or (:tkn lex-tkn) :eof))
@@ -204,7 +209,7 @@
 
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod parse ~tag [~'tag ~pstate ~@(or keys-form '(& ignore))]
-    (cl-format *out* "~%~A" ~tag)
+     (when @debugging? (cl-format *out* "~%~A" ~tag))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
@@ -246,15 +251,15 @@
   (let [pstate {:tokens (-> tokens rest vec) :tkn (-> tokens first :tkn) :tags [] :local []}]
     (parse ::model pstate)))
 
-;;;(tryme "./data/assignment.mzn")
-;;;(tryme "./data/simplest.mzn")
-(defn tryme
-  ([] (tryme "./data/opt5.mzn"))
-  ([filename]
-   (-> filename
-       slurp
-       tokenize
-       parse-mzn)))
+(defn parse-file
+  "Parse a whole file given a filename string."
+  [filename]
+  (as-> filename ?ps
+    (slurp ?ps)
+    (tokenize ?ps)
+    (parse-mzn ?ps)
+    (cond-> ?ps
+      (and (:tokens ?ps) (-> ?ps :error empty?)) (assoc ?ps :error {:reason "Parsing ended prematurely."}))))
 
 (defn parse-list
   "Does parse parametrically for <open-char> [ <item> ','... ] <close-char>"
@@ -322,7 +327,7 @@
 (def builtin-arithmetic-op #{:sum, :product, :min, :max, :arg_min, :arg_max, :abs, :pow})
 
 ;;; POD This is not complete!
-(def builtin-logic-op #{:forall :exists :xorall :clause})
+(def builtin-quantifier #{:forall :exists :xorall :clause})
 
 (def builtin-constraint #{:alldifferent :all-equal})
 
@@ -331,8 +336,13 @@
   (sets/union builtin-bin-op
               builtin-un-op
               builtin-arithmetic-op
-              builtin-logic-op
+              builtin-quantifier
               builtin-constraint))
+
+(def builtin-agg-fn #{:sum :product}) ; I'm guessing see page 23 of Tutorial
+
+(def builtin-gen-call-fn
+  (sets/union builtin-agg-fn builtin-quantifier))
   
 (defparse-auto :builtin-op builtin-op)
 ;;;--------------------End Library Builtins ------------------------------------
@@ -372,7 +382,7 @@
 (defparse ::item
   [pstate]
   (let [tkn  (:tkn pstate)
-        tkn2 (look pstate 0)]
+        tkn2 (look pstate 1)]
     (cond (= tkn :include)                (parse ::include-item pstate),
           (var-decl? pstate)              (parse ::var-decl-item pstate),
           (and (instance? MznId tkn) (= tkn2 \=)) (parse ::assign-item pstate),
@@ -408,6 +418,13 @@
     
 (defrecord MznInclude [model-part])
 ;;; <include-item> ::= include <string-literal>
+(s/def ::model-part #(do % true))
+
+(s/def ::include-item
+  (s/and
+   (s/keys :req-un [::model-part])
+   #(re-matches #"[a-z,A-Z,0-9\-_]+\.mzn" (-> % :model-part :str))))
+
 (defparse ::include-item
   [pstate]
   (as-> pstate ?ps
@@ -429,6 +446,8 @@
 
 (defrecord MznConstraint [expr])
 ;;; <constraint-item> ::= constraint <expr>
+(s/def ::constraint-item #(instance? MznConstraint %))
+
 (defparse ::constraint-item
   [pstate]
   (as-> pstate ?ps
@@ -438,6 +457,8 @@
 
 (defrecord MznSolve [action expr anns])
 ;;; <solve-item> ::= solve <annotations> satisfy | solve <annotations> minimize <expr> | solve <annotations> maximize <expr>
+(s/def ::solve-item #(instance? MznSolve %))
+
 (defparse ::solve-item
   [pstate]
   (as-> pstate ?ps
@@ -459,7 +480,7 @@
 
 ;;; (parse-string ::var-decl-item "array[Workers, Tasks] of int: cost;")
 (defn parse-string
-  "Good for debugging"
+  "Takes a tag and a string to parse. Good for debugging."
   [tag str]
   (let [tokens (tokenize str)
         pstate {:tokens (-> tokens rest vec) :tkn (-> tokens first :tkn) :tags [] :local []}]
@@ -471,6 +492,7 @@
   [tag text]
   (as-> (parse-string tag text) ?pstate
     (and (not (contains? ?pstate :error))
+         (-> ?pstate :tokens empty?)
          (s/valid? tag (:result ?pstate)))))
 
 ;;; <var-decl-item> ::= <ti-expr-and-id> <annotations> [ "=" <expr> ]
@@ -494,6 +516,8 @@
                           (recall ?ps :anns))))))
 
 (defrecord MznOutputItem [expr])
+(s/def ::output-item #(instance? MznOutputItem %))
+
 ;;; <output-item> ::= output <expr> 
 (defparse ::output-item
   [pstate]
@@ -704,8 +728,8 @@
 
 (defn quoted-id? [pstate]
   (and (= \' (:tkn pstate))
-       (instance? MznId (look pstate 1))
-       (= \' (look pstate 2))))
+       (instance? MznId (look pstate 2))
+       (= \' (look pstate 3))))
 
 (defrecord MznExpr [atom tail])
 ;;; I think the grammar is botched here. <expr-binop-tail> should be optional. 
@@ -773,8 +797,8 @@
   [pstate]
   (let [tkn (:tkn pstate)]
     (or (instance? MznId tkn)
-        (let [tkn2 (look pstate 0)
-              tkn3 (look pstate 1)]
+        (let [tkn2 (look pstate 1)
+              tkn3 (look pstate 2)]
           (and (= tkn \')
                (builtin-op tkn2)
                (= tkn3 \'))))))
@@ -803,7 +827,7 @@
           (eat-token ?ps)
           (parse ::expr ?ps)
           (eat-token ?ps \))
-          (assoc ?ps :result (->MznExpr (:result ?ps)))),
+          (assoc ?ps :result (map->MznExpr {:atom (:result ?ps)}))),
         (ident-or-quoted-op? pstate)           ; <ident-or-quoted-op>
         (parse ::ident-or-quoted-op pstate),
         (= \_ tkn)                             ; _
@@ -816,6 +840,12 @@
         (parse ::int-literal pstate), 
         (instance? MznString tkn)              ; string-literal
         (parse ::string-literal pstate)))
+
+;;; From page 23 of the tutorial:
+;;; A generator call expression has form
+;;; 〈agg-func〉 ( 〈generator-exp〉 ) ( 〈exp〉 )
+;;; The round brackets around the generator expression 〈generator-exp〉 and the constructor
+;;; expression 〈exp〉 are not optional: they must be there. 
 
 ;;;  <expr-atom-head> ::= <part1> |
 ;;;                       <set-literal> | <set-comp> | <array-literal> | <array-comp> | <array-literal-2d> |
@@ -841,8 +871,8 @@
           (parse ::if-then-else-expr pstate),                          
           (= tkn :let)                                                ; <let-expr>
           (parse ::let-expr),                                          
-          (builtin-logic-op tkn) ; POD I'm making this up             ; <gen-call-expr>
-          (parse ::gen-call-expr pstate)
+          (builtin-gen-call-fn tkn) ; POD I'm making this up          ; <gen-call-expr> e.g. "sum (w in Workers) (cost[w,doesTask[w]])"
+          (parse ::gen-call-expr pstate)                              ; OR forall    
           (builtin-op tkn)                                            ; <call-expr>
           (parse ::call-expr pstate))))
 
@@ -1075,7 +1105,7 @@
 (defparse ::comp-tail
   [pstate]
   (as-> pstate ?ps
-    (parse-list-terminated ?ps #(= :where %) :generator)
+    (parse-list-terminated ?ps #(= :where %) ::generator)
     (store ?ps :generators)
     (eat-token ?ps :where)
     (parse ::expr ?ps)
@@ -1086,7 +1116,7 @@
 (defparse ::generator
   [pstate]
   (as-> pstate ?ps
-    (parse-list-terminated ?ps  #(= :in %) :ident)
+    (parse-list-terminated ?ps  #(= :in %) ::ident)
     (store ?ps :ids)
     (parse ::expr ?ps)
     (assoc ?ps :result (->MznGenerator (recall ?ps :ids) (:result ?ps)))))
@@ -1097,22 +1127,25 @@
 ;;;
 ;;; forall(i,j in Domain where i<j)
 ;;;     (noattack(i, j, queens[i], queens[j]));
-(defrecord MzGenCallExpr [logic-op quantifiers predicate])
+
+;;; 2019-01-21: I *SUPPOSE* the above can be a gen-call-expr, but it must also include 
+;;; things like: "sum (w in Workers) (cost[w,doesTask[w]])"  (See pg 23 of the tutorial). 
+(defrecord MzGenCallExpr [gen-call-op quantifiers predicate])
 (defparse ::gen-call-expr
   [pstate]
   (as-> pstate ?ps
-    (store ?ps :logic-op :tkn)
-    (eat-token ?ps builtin-logic-op)
+    (store ?ps :gen-call-op :tkn)
+    (eat-token ?ps builtin-gen-call-fn)
     (eat-token ?ps \()
-    (parse ::comp-tail ?ps)
+    (parse ::generator ?ps)
     (store ?ps :quantifier)
     (eat-token ?ps \))
     (eat-token ?ps \()
     (parse ::expr ?ps)
-    (assoc :result (->MzGenCallExpr
-                    (recall ?ps :logic-op)
-                    (recall ?ps :quantifierp)
-                    (:result ?ps)))))
+    (assoc ?ps :result (->MzGenCallExpr
+                        (recall ?ps :gen-call-op)
+                        (recall ?ps :quantifier)
+                        (:result ?ps)))))
 
 ;;;(defrecord MznCallExpr [op args])
 ;;; <call-expr> ::= <ident-or-quoted-op> [ "(" <expr> "," ... ")" ]
