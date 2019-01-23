@@ -30,6 +30,10 @@
 
 (def ^:private diag (atom nil))
 (def debugging? (atom false))
+(defn toggle-debugging []
+  (if @debugging?
+    (reset! debugging? false)
+    (reset! debugging? true)))
 
 ;;; ============ Lexer ===============================================================
 ;;; POD Could add to this from library...
@@ -155,7 +159,7 @@
   [pstate n]
   (if (>= n (count (:tokens pstate)))
     :eof
-    (nth (:tokens pstate) n)))
+    (-> (nth (:tokens pstate) n) :tkn)))
 
 (defn match-tkn
   "Return true if token matches test, which is a string, character, fn or regex."
@@ -174,26 +178,29 @@
                 (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) (-> pstate :tokens second :tkn)))
    (let [next-up (-> pstate :tokens second)]
      (-> pstate
-         (assoc :tkn  (or (:tkn  next-up) :eof))
+         (assoc :tkn  (or (:tkn next-up) :eof))
          (assoc :line (:line next-up))
          (assoc :col  (:col next-up))
          (assoc :tokens (vec (rest (:tokens pstate)))))))
-
-
   ([pstate test]
-   (let [lex-tkn (-> pstate :tokens first)]
-     (when @debugging?
-       (cl-format *out* "~%==>consuming ~S in (~S (~S ~S)) test = ~A next = ~S "
-                  (:tkn lex-tkn) (-> pstate :tags last) (:line lex-tkn) (:col lex-tkn)  test (-> pstate :tokens second :tkn)))
+   (let [next-up (-> pstate :tokens second)]
      (if (match-tkn test (:tkn pstate))
-       (-> pstate ; replicated (rather than called on one arg) for println debugging. 
-           (assoc :tkn (or (:tkn lex-tkn) :eof))
-           (assoc :line (:line lex-tkn))
-           (assoc :col  (:col lex-tkn))
-           (assoc :tokens (vec (rest (:tokens pstate)))))
-       (-> pstate
-           (assoc :error {:expected test :got (:tkn pstate) :in "eat-token" :line (:line lex-tkn) :col (:col lex-tkn)})
-           (assoc :tkn :eof))))))
+       (do
+         (when @debugging?
+           (cl-format *out* "~%==>consuming ~S in (~S (~S ~S)) test = ~A next = ~S "
+                      (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) test (-> pstate :tokens second :tkn)))
+         (-> pstate ; replicated (rather than called on one arg) for println debugging.
+             (assoc :tkn  (or (:tkn next-up) :eof))
+             (assoc :line (:line next-up))
+             (assoc :col  (:col next-up))
+             (assoc :tokens (vec (rest (:tokens pstate))))))
+       (do
+         (when @debugging?
+           (cl-format *out* "~%==>failure ~S in (~S (~S ~S)) test = ~A next = ~S "
+                      (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) test (-> pstate :tokens second :tkn)))
+         (-> pstate
+             (assoc :error {:expected test :got (:tkn pstate) :in "eat-token" :line (:line pstate) :col (:col pstate)})
+             (assoc :tkn :eof)))))))
   
 (defn find-token
   "Return position if tkn is found within the item (before semicolon)."
@@ -483,7 +490,8 @@
   "Takes a tag and a string to parse. Good for debugging."
   [tag str]
   (let [tokens (tokenize str)
-        pstate {:tokens (-> tokens rest vec) :tkn (-> tokens first :tkn) :tags [] :local []}]
+        pstate {:tokens tokens :tkn (-> tokens first :tkn) :tags [] :local []
+                :line (-> tokens first :line) :col (-> tokens first :col)}]
     (parse tag pstate)))
 
 ;(parse-ok? ::var-decl-item  " array[Workers, Tasks] of int: cost;")
@@ -492,7 +500,7 @@
   [tag text]
   (as-> (parse-string tag text) ?pstate
     (and (not (contains? ?pstate :error))
-         (-> ?pstate :tokens empty?)
+         (= :eof (-> ?pstate :tokens first :tkn))
          (s/valid? tag (:result ?pstate)))))
 
 ;;; <var-decl-item> ::= <ti-expr-and-id> <annotations> [ "=" <expr> ]
@@ -1105,19 +1113,26 @@
 (defparse ::comp-tail
   [pstate]
   (as-> pstate ?ps
-    (parse-list-terminated ?ps #(= :where %) ::generator)
+    (parse-list-terminated ?ps #(#{:where \)} %) ::generator)
     (store ?ps :generators)
-    (eat-token ?ps :where)
-    (parse ::expr ?ps)
+    (if (= :where (look ?ps 0))
+      (as-> ?ps ?ps1
+        (eat-token ?ps1 :where)
+        (parse ::expr ?ps1))
+      (assoc ?ps :result nil))
     (assoc ?ps :result (->MznCompTail (recall ?ps :generators) (:result ?ps)))))
 
 (defrecord MznGenerator [ids expr])
 ;;; <generator> ::= <ident> "," ... "in" <expr>
+(s/def ::generator
+  #(instance? MznGenerator %))
+
 (defparse ::generator
   [pstate]
   (as-> pstate ?ps
     (parse-list-terminated ?ps  #(= :in %) ::ident)
     (store ?ps :ids)
+    (eat-token ?ps :in)
     (parse ::expr ?ps)
     (assoc ?ps :result (->MznGenerator (recall ?ps :ids) (:result ?ps)))))
 
@@ -1125,27 +1140,33 @@
 ;;; See https://www.minizinc.org/doc-2.2.0/en/spec.html#spec-generator-call-expressions
 ;;; I am improvizing since I don't understand the spec at this point!
 ;;;
-;;; forall(i,j in Domain where i<j)
-;;;     (noattack(i, j, queens[i], queens[j]));
+;;; forall(i,j in Domain where i<j) (noattack(i, j, queens[i], queens[j]));
+;;; https://www.minizinc.org/doc-2.2.0/en/spec.html#spec-generator-call-expressions
 
-;;; 2019-01-21: I *SUPPOSE* the above can be a gen-call-expr, but it must also include 
-;;; things like: "sum (w in Workers) (cost[w,doesTask[w]])"  (See pg 23 of the tutorial). 
-(defrecord MzGenCallExpr [gen-call-op quantifiers predicate])
+;;; 2019-01-21: gen-call-expr must also include things like:
+;;; "sum (w in Workers) (cost[w,doesTask[w]])"  (See pg 23 of the tutorial). 
+(defrecord MzGenCallExpr [gen-call-op generator expr])
+(s/def ::gen-call-expr
+  #(instance? MzGenCallExpr %))
+
 (defparse ::gen-call-expr
   [pstate]
   (as-> pstate ?ps
     (store ?ps :gen-call-op :tkn)
-    (eat-token ?ps builtin-gen-call-fn)
+    (eat-token ?ps builtin-gen-call-fn) ; 'sum', 'forall' etc. 
     (eat-token ?ps \()
-    (parse ::generator ?ps)
-    (store ?ps :quantifier)
+    (parse ::comp-tail ?ps)             ; '(w in worker), '(i,j in Domain where i<j)', etc. 
+    (store ?ps :comp-tail)
     (eat-token ?ps \))
     (eat-token ?ps \()
-    (parse ::expr ?ps)
-    (assoc ?ps :result (->MzGenCallExpr
-                        (recall ?ps :gen-call-op)
-                        (recall ?ps :quantifier)
-                        (:result ?ps)))))
+    (parse ::expr ?ps)                  ; any expr. 
+    (store ?ps :expr)    
+    (eat-token ?ps \))
+    (assoc ?ps :result
+           (->MzGenCallExpr
+            (recall ?ps :gen-call-op)
+            (recall ?ps :comp-tail)
+            (recall ?ps :expr)))))
 
 ;;;(defrecord MznCallExpr [op args])
 ;;; <call-expr> ::= <ident-or-quoted-op> [ "(" <expr> "," ... ")" ]

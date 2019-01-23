@@ -7,20 +7,25 @@
 ;;; POD refactor for simple parse-ok? and parse-string. 
 (deftest single-lines
   (testing "type returned from parsing a short-ish string with a small grammar element."
-    (is (parse-ok? :pdenno.mznp.mznp/include-item          "include \"alldifferent.mzn\""))
-    (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "int: n = 3"))
-    (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "set of int: Workers = 1..n"))
-    (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "array[Workers, Tasks] of int: cost = [|10, 20, 13, |22, 11, 31, |14, 20, 18|]"))
-    (is (parse-ok? :pdenno.mznp.mznp/constraint-item       "constraint alldifferent(doesTask)"))
-    (is (parse-ok? :pdenno.mznp.mznp/solve-item            "solve minimize sum (w in Workers) (cost[w,doesTask[w]])"))
-    (is (parse-ok? :pdenno.mznp.mznp/output-item           "output [show(doesTask),\"\\n\"]"))
-    (is (parse-ok? :pdenno.mznp.mznp/set-ti-expr-tail      "set of int"))
-    (is (parse-ok? :pdenno.mznp.mznp/gen-call-expr     "sum (w in Workers) (cost[w,doesTask[w]])"))
-    (is (parse-ok? :pdenno.mznp.mznp/array-literal-2d      "[|10, 13, |22, 31, |14, 18|]")) 
-    (is (not (parse-ok? :pdenno.mznp.mznp/array-literal-2d "[|10, 13, |22, 31, |14, 9, 18|]"))))) ; sublist must be equal size
+    (let [db? @debugging?]
+      (reset! debugging? false)
+      (is (parse-ok? :pdenno.mznp.mznp/include-item          "include \"alldifferent.mzn\""))
+      (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "int: n = 3"))
+      (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "set of int: Workers = 1..n"))
+      (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "array[Workers, Tasks] of int: cost = [|10, 20, 13, |22, 11, 31, |14, 20, 18|]"))
+      (is (parse-ok? :pdenno.mznp.mznp/constraint-item       "constraint alldifferent(doesTask)"))
+      (is (parse-ok? :pdenno.mznp.mznp/generator             "w in Workers"))
+      (is (parse-ok? :pdenno.mznp.mznp/gen-call-expr         "sum (w in Workers) (cost[w,doesTask[w]])"))
+      (is (parse-ok? :pdenno.mznp.mznp/gen-call-expr         "forall (i,j in Domain where i<j) (noattack(i, j, queens[i], queens[j]))")) 
+      (is (parse-ok? :pdenno.mznp.mznp/solve-item            "solve minimize sum (w in Workers) (cost[w,doesTask[w]])"))
+      (is (parse-ok? :pdenno.mznp.mznp/output-item           "output [show(doesTask),\"\\n\"]"))
+      (is (parse-ok? :pdenno.mznp.mznp/set-ti-expr-tail      "set of int"))
+      (is (parse-ok? :pdenno.mznp.mznp/array-literal-2d      "[|10, 13, |22, 31, |14, 18|]")) 
+      (is (not (parse-ok? :pdenno.mznp.mznp/array-literal-2d "[|10, 13, |22, 31, |14, 9, 18|]"))) ; sublist must be equal size
+      (reset! debugging? db?))))
 
 ;;; POD Use refactored parse-ok? here. Do spec work separately, starting at ::model. (default when not like parse-string usage).
-(deftest whole-models
+#_(deftest whole-models
   (testing "that valid models compile okay."
     (is (-> (parse-file "data/assignment-inv.mzn") :error not))
     (is (-> (parse-file "data/assignment.mzn") :error not))
