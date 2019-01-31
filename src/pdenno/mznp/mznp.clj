@@ -1072,7 +1072,7 @@
                                     (recall ?ps :elseif)))
     (eat-token ?ps :endif)))
 
-
+;;; This isn't picked up for e.g. noattack(i, j, queens[i], queens[j]). I suppose noattack is a 
 (defrecord MznCallExpr [op args])
 ;;; <call-expr> ::= <ident-or-quoted-op> [ "(" <expr>, ... ")" ]
 ;;; This is called for e.g. constraint alldifferent(foo); :alldifferent is a builtin-op
@@ -1190,4 +1190,7 @@
 
          
   
-
+(defn foo [pairs]
+  (reduce (fn [m p] (update m (first p) + (second p)))
+          {1  0, 3  0,  5  0}
+          pairs))
