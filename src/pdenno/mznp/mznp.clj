@@ -44,7 +44,8 @@
     "par", "predicate", "record", "satisfy", "set", "solve", "string", "subset", "superset",
     "symdiff", "test", "then", "true", "tuple", "type", "union", "var", "where", "xor"
     ;; constraints
-    "alldifferent", "all_equal" ; https://github.com/MiniZinc/libminizinc/tree/master/share/minizinc/std ... many more! 
+    "alldifferent", "all_equal", ; https://github.com/MiniZinc/libminizinc/tree/master/share/minizinc/std ... many more!
+    "all_equal_int", 
     ;; See https://github.com/MiniZinc/libminizinc/blob/master/share/minizinc/std/builtins.mzn ... many more!
     ;; builtins.arithmetic 
     "sum", "product", "min", "max", "arg_min", "arg_max", "abs", "pow"   
@@ -1187,10 +1188,3 @@
   ([text args] (throw (ex-info text args))))
 
 
-
-         
-  
-(defn foo [pairs]
-  (reduce (fn [m p] (update m (first p) + (second p)))
-          {1  0, 3  0,  5  0}
-          pairs))
