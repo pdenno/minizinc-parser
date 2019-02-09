@@ -8,9 +8,9 @@
 ;;; The 'defparse' parsing functions pass around complete state. 
 ;;; The 'parse state' (AKA pstate) is a map with keys:
 ;;;   :result  - the parse structure from the most recent call to (parse :<some-rule-tag> pstate)
-;;;   :tokens  - tokenized content that needs to be parsed into :model
+;;;   :tokens  - tokenized content that needs to be parsed into :model. First on this vector is also :tkn.
 ;;;   :tags    - a stack describing where in the grammar it is parsing (used for debugging)
-;;;   :tkn     - current token, not yet consumed.
+;;;   :tkn     - current token, not yet consumed. It is also the first token on :tokens. 
 ;;;   :line    - line in which token appears.
 ;;;   :col     - column where token starts. 
 ;;;   :error   - non-nil when things go wrong
@@ -29,7 +29,7 @@
 ;;;             I am updating to 2.2.0 wherever I find discrepancies. 
 
 (def ^:private diag (atom nil))
-(def debugging? (atom false))
+(def debugging? (atom true)) 
 (defn toggle-debugging []
   (if @debugging?
     (reset! debugging? false)
@@ -56,7 +56,7 @@
   #{\., \,, \\, \/, \<, \>, \=, \!, \+, \|, \[, \], \:})
 
 (def ^:private mzn-syntactic ; chars that are valid tokens in themselves. 
-  #{\[, \], \(, \), \=, \^, \,, \:, \;, \|, \*, \+, \-, \<, \>, \_})
+  #{\[, \], \(, \), \=, \^, \,, \:, \;, \|, \*, \+, \-, \<, \>}) ; not \_
 
 ;;; POD multi-line coment (e.g. /* ... */ would go in here, sort of. 
 (defn read-long-syntactic [st ws]
@@ -130,7 +130,7 @@
                word (subs s 0 (or pos (count s)))]
             (or 
              (and (mzn-keywords word) {:ws ws :raw word :tkn (keyword word)})  
-             (when-let [[_ id] (re-matches #"^([a-zA-Z][A-Za-z0-9_]*).*" word)]     ; identifer type 1 
+             (when-let [[_ id] (re-matches #"^([a-zA-Z][A-Za-z0-9\_]*).*" word)]     ; identifer type 1 
                {:ws ws :raw id :tkn (->MznId id)})))
          (throw (ex-info "Char starts no known token: " {:raw c :line line})))))
 
@@ -198,7 +198,8 @@
        (do
          (when @debugging?
            (cl-format *out* "~%==>failure ~S in (~S (~S ~S)) test = ~A next = ~S "
-                      (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) test (-> pstate :tokens second :tkn)))
+                      (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) test (-> pstate :tokens second :tkn))
+           (cl-format *out* "~%:error = ~S" (:error pstate)))
          (-> pstate
              (assoc :error {:expected test :got (:tkn pstate) :in "eat-token" :line (:line pstate) :col (:col pstate)})
              (assoc :tkn :eof)))))))
@@ -207,12 +208,12 @@
   "Return position if tkn is found within the item (before semicolon)."
   [pstate tkn]
   (when (not-empty (:tokens pstate))
-    (let [tkns (:tokens pstate)
+    (let [tkns (map :tkn (:tokens pstate))
           pos-semi (.indexOf tkns \;)
           pos-tkn  (.indexOf tkns tkn)]
-      (cond (== pos-semi -1) nil, ; Hmm... this is an error! Every item ends with semicolon
+      (cond ;(== pos-semi -1) nil, ; Hmm... this is an error! Every item ends with semicolon... ; BUT MAKES TESTING DIFFICULT!
             (== pos-tkn  -1) nil,
-            (< pos-semi pos-tkn) nil,
+            (and (pos? pos-semi) (< pos-semi pos-tkn)) nil,
             :else pos-tkn))))
 
 (defmacro defparse [tag [pstate & keys-form] & body]
@@ -222,7 +223,7 @@
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
        (if (:error ~pstate) ; Stop things
-         (assoc ~pstate :tkn :eof)
+         ~pstate ;(assoc ~pstate :tkn :eof)
          (as-> ~pstate ~pstate
            ~@body))
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
@@ -256,7 +257,7 @@
 (defn parse-mzn
   "Top-level parsing from tokenized stream TOKENS."
   [tokens]
-  (let [pstate {:tokens (-> tokens rest vec) :tkn (-> tokens first :tkn) :tags [] :local []}]
+  (let [pstate {:tokens (vec tokens) :tkn (-> tokens first :tkn) :tags [] :local []}]
     (parse ::model pstate)))
 
 (defn parse-file
@@ -266,8 +267,9 @@
     (slurp ?ps)
     (tokenize ?ps)
     (parse-mzn ?ps)
-    (cond-> ?ps
-      (and (:tokens ?ps) (-> ?ps :error empty?)) (assoc ?ps :error {:reason "Parsing ended prematurely."}))))
+    (if (not= (:tkn ?ps) :eof)
+      (assoc ?ps :error {:reason "Parsing ended prematurely."})
+      ?ps)))
 
 (defn parse-list
   "Does parse parametrically for <open-char> [ <item> ','... ] <close-char>"
@@ -354,23 +356,23 @@
   
 (defparse-auto :builtin-op builtin-op)
 ;;;--------------------End Library Builtins ------------------------------------
+(s/def ::model (s/keys :req-un [::items]))
 
-;;; <model>::= [ <item>; ... ]
+;;; <model>::= [ <item> ; ... ]
 (defrecord MznModel [items])
-;; <model> ::= [ <item> ; ...]
 (defparse ::model ; top-level grammar element. 
   [pstate]
   (loop [ps (assoc pstate :model (->MznModel []))]
     (if (= :eof (:tkn ps))
-      ps
+      (assoc ps :result {:items :success}) ; :result needed for spec
       (recur 
        (if (instance? MznEOLcomment (:tkn ps))
          (as-> ps ?ps
-           (update ?ps :model conj (:tkn ?ps))
+           (update-in ?ps [:model :items] conj (:tkn ?ps))
            (eat-token ?ps))
          (as-> ps ?ps
            (parse ::item ?ps)
-           (update ?ps :model conj (:result ?ps))
+           (update-in ?ps [:model :items] conj (:result ?ps))
            (eat-token ?ps \;)))))))
 
 (defn var-decl? 
@@ -689,7 +691,22 @@
           (= tkn \{)                        ; "{" <expr>, ... "}" 
           (parse ::set-literal pstate),
           (find-token pstate :..-op)        ; <num-expr> ".."  <num-expr> ; call it a range expression
-          (assoc pstate :error {:msg "<num-expr> .. <num-expr> NYI." :line (:line pstate)}))))
+          (parse ::range-expr pstate)
+          :else
+          (assoc pstate :error {:expected :base-ti-expr-tail :tkn (:tkn pstate)
+                                :line (:line pstate) :col (:col pstate)}))))
+
+;;; POD I'm making this up
+(defrecord MznRangeExpr [from to])
+(defparse ::range-expr
+  [pstate]
+  (as-> pstate ?ps
+    (parse :num-expr ?ps)
+    (store ?ps :from)
+    (eat-token ?ps :..-op)
+    (parse :num-expr ?ps)
+    (->MznRangeExpr (recall ?ps :from) (:result ?ps))))
+  
 
 (defrecord MznSetType [base-type optional?])
 ;;; <set-ti-expr-tail> ::= set of <base-type>
@@ -804,13 +821,15 @@
 (defn ident-or-quoted-op?
   "Returns true if head satisfies <ident-or-quoted-op> ::= <ident> | ’<builtin-op>’"
   [pstate]
-  (let [tkn (:tkn pstate)]
-    (or (instance? MznId tkn)
-        (let [tkn2 (look pstate 1)
-              tkn3 (look pstate 2)]
-          (and (= tkn \')
-               (builtin-op tkn2)
-               (= tkn3 \'))))))
+  (let [tkn (:tkn pstate)
+        tkn2 (look pstate 1)
+        tkn3 (look pstate 2)]
+    (or (and (instance? MznId tkn)
+             (not= tkn2 \())       ; Prevent identification when it is a call-op without known builtin (e.g. noattack)
+        (and (= tkn \')
+             (builtin-op tkn2)
+             (= tkn3 \')
+             (not= tkn2 \())))) ; Prevent identification when it is a call-op without known builtin (e.g. noattack)
 
 (defrecord MznExprUnOp [uni-op atom])
 ;;;  <expr-atom-head> ::= <builtin-un-op> <expr-atom> | ( <expr>) | <ident-or-quoted-op> |
@@ -863,7 +882,8 @@
 (defn part2 [pstate tkn]
   (let [pos1 (find-token pstate \})
         pos2 (find-token pstate \|)
-        pos3 (find-token pstate \])]
+        pos3 (find-token pstate \])
+        tkn2 (look pstate 1)]
     (cond (and (= tkn \{) (or (not pos2) (and pos1 (< pos1 pos2))))   ; <set-literal>
           (parse ::set-literal pstate),                                
           (= tkn \{)                                                  ; <set-comp>
@@ -881,9 +901,14 @@
           (= tkn :let)                                                ; <let-expr>
           (parse ::let-expr),                                          
           (builtin-gen-call-fn tkn) ; POD I'm making this up          ; <gen-call-expr> e.g. "sum (w in Workers) (cost[w,doesTask[w]])"
-          (parse ::gen-call-expr pstate)                              ; OR forall    
-          (builtin-op tkn)                                            ; <call-expr>
-          (parse ::call-expr pstate))))
+          (parse ::gen-call-expr pstate)                              ;                       OR forall    
+          (or (builtin-op tkn)                                        ; <call-expr>
+              (and (instance? MznId tkn)
+                   (= \( tkn2)))
+          (parse ::call-expr pstate)
+          :else
+          (assoc pstate :error {:expected "expr-atom-head (lots of stuff)"
+                                :got (:tkn pstate) :line (:line pstate)}))))
 
 (defrecord MznQuotedOp [op])
 ;;; 4.1.7.3. Expression Atoms suggests that they are serious about this.
@@ -1073,6 +1098,9 @@
                                     (recall ?ps :elseif)))
     (eat-token ?ps :endif)))
 
+(s/def ::call-expr
+  (s/keys :req-un [::op ::args]))
+
 ;;; This isn't picked up for e.g. noattack(i, j, queens[i], queens[j]). I suppose noattack is a 
 (defrecord MznCallExpr [op args])
 ;;; <call-expr> ::= <ident-or-quoted-op> [ "(" <expr>, ... ")" ]
@@ -1082,7 +1110,7 @@
   [pstate]
   (as-> pstate ?ps
     (store ?ps :op :tkn)
-    (eat-token ?ps builtin-op)
+    (eat-token ?ps #(or (builtin-op %) (instance? MznId %)))
     (if (= \( (:tkn ?ps))
       (as-> ?ps ?ps1
         (parse-list ?ps1 \( \))
@@ -1100,7 +1128,6 @@
     (eat-token ?ps :in)
     (parse ::expr ?ps)
     (assoc ?ps :result (->MznLetExpr (recall ?ps :items) (:result ?ps)))))
-    
 
 ;;; <let-item> ::= <var-decl-item> | <constraint-item>
 (defparse ::let-item
@@ -1116,7 +1143,7 @@
   (as-> pstate ?ps
     (parse-list-terminated ?ps #(#{:where \)} %) ::generator)
     (store ?ps :generators)
-    (if (= :where (look ?ps 0))
+    (if (= :where (:tkn ?ps))
       (as-> ?ps ?ps1
         (eat-token ?ps1 :where)
         (parse ::expr ?ps1))
@@ -1147,6 +1174,7 @@
 ;;; 2019-01-21: gen-call-expr must also include things like:
 ;;; "sum (w in Workers) (cost[w,doesTask[w]])"  (See pg 23 of the tutorial). 
 (defrecord MzGenCallExpr [gen-call-op generator expr])
+
 (s/def ::gen-call-expr
   #(instance? MzGenCallExpr %))
 
@@ -1171,7 +1199,6 @@
 
 ;;;(defrecord MznCallExpr [op args])
 ;;; <call-expr> ::= <ident-or-quoted-op> [ "(" <expr> "," ... ")" ]
-
 
 ;;;=== General =========================
 (defn ppp []
