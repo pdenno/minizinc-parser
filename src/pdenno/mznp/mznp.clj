@@ -56,7 +56,7 @@
   #{\., \,, \\, \/, \<, \>, \=, \!, \+, \|, \[, \], \:})
 
 (def ^:private mzn-syntactic ; chars that are valid tokens in themselves. 
-  #{\[, \], \(, \), \=, \^, \,, \:, \;, \|, \*, \+, \-, \<, \>}) ; not \_
+  #{\[, \], \(, \), \{, \}, \=, \^, \,, \:, \;, \|, \*, \+, \-, \<, \>}) ; not \_
 
 ;;; POD multi-line coment (e.g. /* ... */ would go in here, sort of. 
 (defn read-long-syntactic [st ws]
@@ -116,7 +116,7 @@
     (or  (and (empty? s) {:ws ws :raw "" :tkn :eof})                    ; EOF
          (and (mzn-long-syntactic c) (read-long-syntactic s ws))        ; ++, <=, == etc. 
          (and (mzn-syntactic c) {:ws ws :raw (str c) :tkn c})           ; literal syntactic char.
-         (when-let [[_ num] (re-matches #"(?s)(\d+(\.\d+e[+-]?\d+)?).*" s)]
+         (when-let [[_ num] (re-matches #"(?s)(\d+(\.\d+(e[+-]?\d+)?)?).*" s)]
            {:ws ws :raw num :tkn (read-string num)}),                   ; number
          (when-let [[_ id] (re-matches #"(?s)('[^']*').*" s)]           ; identifer type 2 POD Need's work. 
            {:ws ws :raw id :tkn (->MznId id)})
@@ -216,10 +216,12 @@
             (and (pos? pos-semi) (< pos-semi pos-tkn)) nil,
             :else pos-tkn))))
 
-; (cl-format *out* "~v@{~A~:*~}" 5 "hi")
+;;; Alternative: https://stackoverflow.com/questions/24754552/repeat-string-character-with-format
+;;; (cl-format *out* "~%~v{~A~:*~}==> ~A" (-> ~pstate :tags count) " " ~tag))
+(def lstr "A long string" "                                                                              ")
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod parse ~tag [~'tag ~pstate ~@(or keys-form '(& ignore))]
-     (when @debugging? (cl-format *out* "~%~v{~A~:*~}==> ~A" (-> ~pstate :tags count) " " ~tag))
+     (when @debugging? (cl-format *out* "~%~A==> ~A" (subs lstr 0 (-> ~pstate :tags count)) ~tag))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
@@ -229,7 +231,7 @@
            ~@body))
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
-       (do (when @debugging? (cl-format *out* "~%~v{~A~:*~}<-- ~A" (-> ~pstate :tags count) " " ~tag))
+       (do (when @debugging? (cl-format *out* "~%~A<-- ~A" (subs lstr 0 (-> ~pstate :tags count)) ~tag))
            ~pstate))))
 
 ;;; Abbreviated for simple forms such as builtins. 
@@ -294,7 +296,9 @@
          (as-> ps ?ps1
            (parse parse-tag ?ps1)
            (update-in ?ps1 [:local 0 :items] conj (:result ?ps1))
-           (recur (cond-> ?ps1 (= \, (:tkn ?ps1)) (eat-token \,)))))))))
+           (if (contains? ?ps1 :error)
+             ?ps1
+             (recur (cond-> ?ps1 (= \, (:tkn ?ps1)) (eat-token \,))))))))))
 
 (defn parse-list-terminated
   "Does parse parametrically for '[ <item> ','... ] <terminator>'. Does not eat terminator."
@@ -507,7 +511,8 @@
   (as-> (parse-string tag text) ?pstate
     (and (not (contains? ?pstate :error))
          (= :eof (-> ?pstate :tokens first :tkn))
-         (s/valid? tag (:result ?pstate)))))
+         (or (not (contains? (s/registry) tag))
+             (s/valid? tag (:result ?pstate))))))
 
 ;;; <var-decl-item> ::= <ti-expr-and-id> <annotations> [ "=" <expr> ]
 (defparse ::var-decl-item
@@ -699,27 +704,16 @@
           (assoc pstate :error {:expected :base-ti-expr-tail :tkn (:tkn pstate)
                                 :line (:line pstate) :col (:col pstate)}))))
 
-;;; POD I'm making this up
-#_(defrecord MznRangeExpr [from to])
-#_(defparse ::range-expr
-  [pstate]
-  (as-> pstate ?ps
-    (parse ::num-expr ?ps)
-    (store ?ps :from)
-    (eat-token ?ps :..-op)
-    (parse ::num-expr ?ps)
-    (->MznRangeExpr (recall ?ps :from) (:result ?ps))))
-
 (defrecord MznSetType [base-type optional?])
-;;; <set-ti-expr-tail> ::= set of <base-type>
 (s/def ::set-ti-expr-tail (s/keys :req-un [::base-type ::optional?]))
 
+;;; <set-ti-expr-tail> ::= set of <ti-expr>  POD It said <base-type> here, not <ti-expr> See knapsack.mzn
 (defparse ::set-ti-expr-tail
   [pstate]
   (as-> pstate ?ps
       (eat-token ?ps :set)
       (eat-token ?ps :of)
-      (parse ::base-type ?ps)
+      (parse ::ti-expr ?ps)
       (assoc ?ps :result (->MznSetType (:result ?ps) nil))))
           
 (defrecord MznArrayType [index base-type optional?])
@@ -867,7 +861,9 @@
         (#{false true} tkn)                    ; bool-literal
         (parse ::bool-literal pstate),
         (integer? tkn)                         ; int-literal
-        (parse ::int-literal pstate), 
+        (parse ::int-literal pstate),
+        (float? tkn)                           ; float-literal
+        (parse ::float-literal pstate), 
         (instance? MznString tkn)              ; string-literal
         (parse ::string-literal pstate)))
 

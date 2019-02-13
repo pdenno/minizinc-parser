@@ -17,13 +17,15 @@
       (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "set of int: Workers = 1..n"))
       (is (parse-ok? :pdenno.mznp.mznp/var-decl-item
                      "array[Workers, Tasks] of int: cost = [|10, 20, 13, |22, 11, 31, |14, 20, 18|]"))
+      (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "var set of Items: knapsack"))
       (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "array [Jobs,Weeks] of var int: WorkersOnJob"))
       (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "array [Jobs,Weeks] of var 1..workforce_size: WorkersOnJob"))
+      (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "int: digs = ceil(log(10.0,int2float(total)))"))
       (is (parse-ok? :pdenno.mznp.mznp/constraint-item       "constraint alldifferent(doesTask)"))
       (is (parse-ok? :pdenno.mznp.mznp/solve-item            "solve minimize sum (w in Workers) (cost[w,doesTask[w]])"))
-      (is (parse-ok? :pdenno.mznp.mznp/solve-item            "solve maximize sum (j in Jobs) (endWeek[j] - startWeek[j])")
+      (is (parse-ok? :pdenno.mznp.mznp/solve-item            "solve maximize sum (j in Jobs) (endWeek[j] - startWeek[j])"))
       (is (parse-ok? :pdenno.mznp.mznp/output-item           "output [show(doesTask),\"\\n\"]"))
-
+          
       (is (parse-ok? :pdenno.mznp.mznp/generator             "w in Workers"))
       (is (parse-ok? :pdenno.mznp.mznp/gen-call-expr         "sum (w in Workers) (cost[w,doesTask[w]])"))
       (is (parse-ok? :pdenno.mznp.mznp/gen-call-expr
@@ -36,7 +38,7 @@
       (reset! debugging? db?))))
 
 ;;; POD Use refactored parse-ok? here. Do spec work separately, starting at ::model. (default when not like parse-string usage).
-#_(deftest whole-models
+(deftest whole-models
   (testing "that valid models compile okay."
     (is (-> (parse-file "data/simplest.mzn") :error not))
     (is (-> (parse-file "data/peckham.mzn") :error not))
@@ -50,7 +52,6 @@
     (is (-> (parse-file "data/knapsack.mzn") :error not))
     (is (-> (parse-file "data/laplace.mzn") :error not))
     (is (-> (parse-file "data/loan.mzn") :error not))
-    (is (-> (parse-file "data/opt5.mzn") :error not))
     (is (-> (parse-file "data/send-more-money.mzn") :error not))
     (is (-> (parse-file "data/simple-prod-planning.mzn") :error not))
     (is (-> (parse-file "data/social-golfers.mzn") :error not))
@@ -58,7 +59,7 @@
     (is (-> (parse-file "data/sudoku.mzn") :error not))))
 
 ;;; POD Would be more useful to identify where an element is in any two of them. 
-(deftest builtins-partition 
+#_(deftest builtins-partition 
   (testing "That the builtins are partitioned."
     (is (empty? (sets/intersection builtin-bin-op
                                    builtin-un-op
