@@ -21,6 +21,7 @@
       (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "array [Jobs,Weeks] of var 1..workforce_size: WorkersOnJob"))
       (is (parse-ok? :pdenno.mznp.mznp/constraint-item       "constraint alldifferent(doesTask)"))
       (is (parse-ok? :pdenno.mznp.mznp/solve-item            "solve minimize sum (w in Workers) (cost[w,doesTask[w]])"))
+      (is (parse-ok? :pdenno.mznp.mznp/solve-item            "solve maximize sum (j in Jobs) (endWeek[j] - startWeek[j])")
       (is (parse-ok? :pdenno.mznp.mznp/output-item           "output [show(doesTask),\"\\n\"]"))
 
       (is (parse-ok? :pdenno.mznp.mznp/generator             "w in Workers"))

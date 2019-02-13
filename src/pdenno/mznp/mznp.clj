@@ -175,7 +175,7 @@
   "Move head of :tokens to :tkn ('consuming' the old :tkn) With 2 args, test :tkn first."
   ([pstate]
    (when @debugging?
-     (cl-format *out* "~%==>consuming ~S in (~S (~S ~S)) next = ~S"
+     (cl-format *out* "~%*** Consuming ~S in (~S (~S ~S)) next = ~S"
                 (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) (-> pstate :tokens second :tkn)))
    (let [next-up (-> pstate :tokens second)]
      (-> pstate
@@ -188,7 +188,7 @@
      (if (match-tkn test (:tkn pstate))
        (do
          (when @debugging?
-           (cl-format *out* "~%==>consuming ~S in (~S (~S ~S)) test = ~A next = ~S "
+           (cl-format *out* "~%*** Consuming ~S in (~S (~S ~S)) test = ~A next = ~S "
                       (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) test (-> pstate :tokens second :tkn)))
          (-> pstate ; replicated (rather than called on one arg) for println debugging.
              (assoc :tkn  (or (:tkn next-up) :eof))
@@ -197,9 +197,9 @@
              (assoc :tokens (vec (rest (:tokens pstate))))))
        (do
          (when @debugging?
-           (cl-format *out* "~%==>failure ~S in (~S (~S ~S)) test = ~A next = ~S "
+           (cl-format *out* "~%*** FAILURE ~S in (~S (~S ~S)) test = ~A next = ~S "
                       (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) test (-> pstate :tokens second :tkn))
-           (cl-format *out* "~%:error = ~S" (:error pstate)))
+           (cl-format *out* "~%*** :error = ~S" (:error pstate)))
          (-> pstate
              (assoc :error {:expected test :got (:tkn pstate) :in "eat-token" :line (:line pstate) :col (:col pstate)})
              (assoc :tkn :eof)))))))
@@ -216,18 +216,21 @@
             (and (pos? pos-semi) (< pos-semi pos-tkn)) nil,
             :else pos-tkn))))
 
+; (cl-format *out* "~v@{~A~:*~}" 5 "hi")
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod parse ~tag [~'tag ~pstate ~@(or keys-form '(& ignore))]
-     (when @debugging? (cl-format *out* "~%~A" ~tag))
+     (when @debugging? (cl-format *out* "~%~v{~A~:*~}==> ~A" (-> ~pstate :tags count) " " ~tag))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
        (if (:error ~pstate) ; Stop things
-         ~pstate ;(assoc ~pstate :tkn :eof)
+         ~pstate 
          (as-> ~pstate ~pstate
            ~@body))
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
-       (update-in ~pstate [:local] #(vec (rest %))))))
+       (update-in ~pstate [:local] #(vec (rest %)))
+       (do (when @debugging? (cl-format *out* "~%~v{~A~:*~}<-- ~A" (-> ~pstate :tags count) " " ~tag))
+           ~pstate))))
 
 ;;; Abbreviated for simple forms such as builtins. 
 (defmacro defparse-auto [tag test]
@@ -691,22 +694,21 @@
           (= tkn \{)                        ; "{" <expr>, ... "}" 
           (parse ::set-literal pstate),
           (find-token pstate :..-op)        ; <num-expr> ".."  <num-expr> ; call it a range expression
-          (parse ::range-expr pstate)
+          (parse ::num-expr pstate)
           :else
           (assoc pstate :error {:expected :base-ti-expr-tail :tkn (:tkn pstate)
                                 :line (:line pstate) :col (:col pstate)}))))
 
 ;;; POD I'm making this up
-(defrecord MznRangeExpr [from to])
-(defparse ::range-expr
+#_(defrecord MznRangeExpr [from to])
+#_(defparse ::range-expr
   [pstate]
   (as-> pstate ?ps
-    (parse :num-expr ?ps)
+    (parse ::num-expr ?ps)
     (store ?ps :from)
     (eat-token ?ps :..-op)
-    (parse :num-expr ?ps)
+    (parse ::num-expr ?ps)
     (->MznRangeExpr (recall ?ps :from) (:result ?ps))))
-  
 
 (defrecord MznSetType [base-type optional?])
 ;;; <set-ti-expr-tail> ::= set of <base-type>
@@ -1009,7 +1011,6 @@
     (parse-list ?ps \[ \])
     (assoc ?ps :result (->MznArray (:result ?ps)))))
 
-
 ;;; [|10, 20, 13, |22, 11, 31, |14, 20, 18|] -- Note the extra commas!
 (defrecord Mzn2dArray [sublists])
 (s/def ::sublists
@@ -1213,5 +1214,3 @@
   ([] (throw (ex-info "Break!" {})))
   ([text] (throw (ex-info text {})))
   ([text args] (throw (ex-info text args))))
-
-

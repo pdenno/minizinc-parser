@@ -67,4 +67,4 @@ constraint forall (j in Jobs)
      (sum (w in Weeks) (8*Workdays[w]*WorkersOnJob[j,w])));
                        
 % Find an assignment that meets due dates etc. (constraints above) and maximizes run length. 
-solve maximize sum (j in Jobs) (endWeek[j] - startWeek[j])
+solve maximize sum (j in Jobs) (endWeek[j] - startWeek[j]);
