@@ -58,7 +58,7 @@
 (def ^:private mzn-syntactic ; chars that are valid tokens in themselves. 
   #{\[, \], \(, \), \{, \}, \=, \^, \,, \:, \;, \|, \*, \+, \-, \<, \>}) ; not \_
 
-;;; POD multi-line coment (e.g. /* ... */ would go in here, sort of. 
+;;; POD multi-line comment (e.g. /* ... */ would go in here, sort of. 
 (defn read-long-syntactic [st ws]
   (let [len (count st)
         c0  (nth st 0)
@@ -268,13 +268,10 @@
 (defn parse-file
   "Parse a whole file given a filename string."
   [filename]
-  (as-> filename ?ps
-    (slurp ?ps)
-    (tokenize ?ps)
-    (parse-mzn ?ps)
-    (if (not= (:tkn ?ps) :eof)
-      (assoc ?ps :error {:reason "Parsing ended prematurely."})
-      ?ps)))
+  (let [ps (->> filename slurp tokenize (remove #(instance? MznEOLcomment %)) vec parse-mzn)]
+    (if (not= (:tkn ps) :eof)
+      (assoc ps :error {:reason "Parsing ended prematurely."})
+      ps)))
 
 (defn parse-list
   "Does parse parametrically for <open-char> [ <item> ','... ] <close-char>"
@@ -317,7 +314,9 @@
          (as-> ps ?ps
            (parse parse-tag ?ps)
            (update-in ?ps [:local 0 :items] conj (:result ?ps))
-           (recur (cond-> ?ps (= \, (:tkn ?ps)) (eat-token \,)))))))))
+           (if (contains? ?ps :error)
+             ?ps
+             (recur (cond-> ?ps (= \, (:tkn ?ps)) (eat-token \,))))))))))
 
 ;;; ========================Production rules ====================================================
 ;;; <builtin-num-bin-op> ::= + | - | * | / | div | mod
@@ -373,14 +372,14 @@
     (if (= :eof (:tkn ps))
       (assoc ps :result {:items :success}) ; :result needed for spec
       (recur 
-       (if (instance? MznEOLcomment (:tkn ps))
-         (as-> ps ?ps
-           (update-in ?ps [:model :items] conj (:tkn ?ps))
-           (eat-token ?ps))
+       ;(if (instance? MznEOLcomment (:tkn ps)) ; POD I'm removing comments
+       ;  (as-> ps ?ps
+       ;    (update-in ?ps [:model :items] conj (:tkn ?ps))
+        ;   (eat-token ?ps))
          (as-> ps ?ps
            (parse ::item ?ps)
            (update-in ?ps [:model :items] conj (:result ?ps))
-           (eat-token ?ps \;)))))))
+           (eat-token ?ps \;))))))
 
 (defn var-decl? 
   "Returns true if head looks like it can start a var-decl"
@@ -499,7 +498,7 @@
 (defn parse-string
   "Takes a tag and a string to parse. Good for debugging."
   [tag str]
-  (let [tokens (tokenize str)
+  (let [tokens (->> str tokenize (remove #(instance? MznEOLcomment %)) vec)
         pstate {:tokens tokens :tkn (-> tokens first :tkn) :tags [] :local []
                 :line (-> tokens first :line) :col (-> tokens first :col)}]
     (parse tag pstate)))
@@ -1125,7 +1124,7 @@
     (eat-token ?ps :in)
     (parse ::expr ?ps)
     (assoc ?ps :result (->MznLetExpr (recall ?ps :items) (:result ?ps)))))
-
+ 
 ;;; <let-item> ::= <var-decl-item> | <constraint-item>
 (defparse ::let-item
   [pstate]
