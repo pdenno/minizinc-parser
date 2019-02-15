@@ -5,12 +5,15 @@
   (:import (pdenno.mznp.mznp
             MznVarDecl)))
 
+"[ s[i] | i in 1..foo]"
+
 ;;; POD refactor for simple parse-ok? and parse-string. 
 (deftest single-lines
   (testing "type returned from parsing a short-ish string."
     (let [db? @debugging?]
       (reset! debugging? false)
       (is (parse-ok? :pdenno.mznp.mznp/model                 "include \"alldifferent.mzn\"; int: i = 0;"))
+      (is (parse-ok? :pdenno.mznp.mznp/model                 "var 0..total: end; % Hello, world! \n constraint end == 0; "))
       
       (is (parse-ok? :pdenno.mznp.mznp/include-item          "include \"alldifferent.mzn\""))
       (is (parse-ok? :pdenno.mznp.mznp/var-decl-item         "int: n = 3"))
@@ -25,6 +28,8 @@
       (is (parse-ok? :pdenno.mznp.mznp/solve-item            "solve minimize sum (w in Workers) (cost[w,doesTask[w]])"))
       (is (parse-ok? :pdenno.mznp.mznp/solve-item            "solve maximize sum (j in Jobs) (endWeek[j] - startWeek[j])"))
       (is (parse-ok? :pdenno.mznp.mznp/output-item           "output [show(doesTask),\"\\n\"]"))
+      (is (parse-ok? :pdenno.mznp.mznp/output-item           "output [\"end = \", show(end), \"\\n\"] ++
+       [ show_int(digs,s[i,j]) ++ \" \" ++ if j == tasks then \"\\n\" else \"\" endif | i in 1..jobs, j in 1..tasks ]"))
           
       (is (parse-ok? :pdenno.mznp.mznp/generator             "w in Workers"))
       (is (parse-ok? :pdenno.mznp.mznp/gen-call-expr         "sum (w in Workers) (cost[w,doesTask[w]])"))
@@ -35,6 +40,8 @@
       (is (parse-ok? :pdenno.mznp.mznp/base-ti-expr-tail     "int"))
       (is (parse-ok? :pdenno.mznp.mznp/array-literal-2d      "[|10, 13, |22, 31, |14, 18|]")) 
       (is (not (parse-ok? :pdenno.mznp.mznp/array-literal-2d "[|10, 13, |22, 31, |14, 9, 18|]"))) ; sublist must be equal size
+      (is (parse-ok? :pdenno.mznp.mznp/array-comp "[i + j | i, j in 1..3 where j < i]"))
+      
       (reset! debugging? db?))))
 
 ;;; POD Use refactored parse-ok? here. Do spec work separately, starting at ::model. (default when not like parse-string usage).

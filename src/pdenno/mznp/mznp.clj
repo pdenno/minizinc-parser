@@ -35,7 +35,7 @@
     (reset! debugging? false)
     (reset! debugging? true)))
 
-;;; ============ Lexer ===============================================================
+;;; ============ Tokenizer ===============================================================
 ;;; POD Could add to this from library...
 (def ^:private mzn-keywords
   #{"ann", "annotation", "any", "array", "bool", "case", "constraint", "diff", "div", "else",
@@ -43,16 +43,14 @@
     "intersect", "let", "list", "maximize", "minimize", "mod", "not", "of", "op", "opt", "output", ; website shows "opt"
     "par", "predicate", "record", "satisfy", "set", "solve", "string", "subset", "superset",
     "symdiff", "test", "then", "true", "tuple", "type", "union", "var", "where", "xor"
-    ;; constraints
-    "alldifferent", "all_equal", ; https://github.com/MiniZinc/libminizinc/tree/master/share/minizinc/std ... many more!
-    "all_equal_int", 
-    ;; See https://github.com/MiniZinc/libminizinc/blob/master/share/minizinc/std/builtins.mzn ... many more!
-    ;; builtins.arithmetic 
+    ;; global constraints  --  https://github.com/MiniZinc/libminizinc/tree/master/share/minizinc/std ... many more!
+    "alldifferent", "all_equal", "all_equal_int", 
+    ;; builtins.arithmetic -- https://github.com/MiniZinc/libminizinc/blob/master/share/minizinc/std/builtins.mzn ... many more!
     "sum", "product", "min", "max", "arg_min", "arg_max", "abs", "pow"   
     ;; builtins.logic
     "forall", "exists", "xorall", "clause", "iffall"})
 
-(def ^:private mzn-long-syntactic ; chars that COULD start a multi-character syntactic. 
+(def ^:private mzn-long-syntactic ; chars that COULD start a multi-character syntactic elements. 
   #{\., \,, \\, \/, \<, \>, \=, \!, \+, \|, \[, \], \:})
 
 (def ^:private mzn-syntactic ; chars that are valid tokens in themselves. 
@@ -102,7 +100,7 @@
 (defrecord MznOp [name])
 (defrecord MznId [name])
 (defrecord MznString [str])
-(defrecord MznEOLcomment [comment])
+(defrecord MznEOLcomment [text line col])
 (defrecord MznTypeInstVar [name])
 
 ;;; https://www.regular-expressions.info/modifiers.html (?s) allows  .* to match all characters including line breaks. 
@@ -123,7 +121,7 @@
          (when-let [[_ st] (re-matches #"(?s)(\"[^\"]*\").*" s)]        ; string literal
            {:ws ws :raw st :tkn (->MznString (read-string st))})
          (when-let [[_ cm] (re-matches #"(?s)(\%[^\n]*).*" s)]          ; EOL comment
-           {:ws ws :raw cm :tkn (->MznEOLcomment cm)})
+           {:ws ws :raw cm :tkn (map->MznEOLcomment {:text cm})})
          (when-let [[_ tivar] (re-matches #"(?s)(\$[A-Za-z][A-Za-z0-9_]*)" s)]
            {:ws ws :raw tivar :tkn (->MznTypeInstVar tivar)})
          (let [pos (position-break s)
@@ -154,7 +152,7 @@
          (+ line new-lines)
          (+ col (count (:raw lex))))))))
 
-;;; ============ Parser ===============================================================
+;;; ============ Parser Utilities ============================================================
 (defn look
   "Returns a token, not the pstate."
   [pstate n]
@@ -203,25 +201,41 @@
          (-> pstate
              (assoc :error {:expected test :got (:tkn pstate) :in "eat-token" :line (:line pstate) :col (:col pstate)})
              (assoc :tkn :eof)))))))
+
+(defn token-vec [pstate] (map :tkn (:tokens pstate)))
   
 (defn find-token
   "Return position if tkn is found within the item (before semicolon)."
-  [pstate tkn]
-  (when (not-empty (:tokens pstate))
-    (let [tkns (map :tkn (:tokens pstate))
-          pos-semi (.indexOf tkns \;)
-          pos-tkn  (.indexOf tkns tkn)]
-      (cond ;(== pos-semi -1) nil, ; Hmm... this is an error! Every item ends with semicolon... ; BUT MAKES TESTING DIFFICULT!
-            (== pos-tkn  -1) nil,
+  [tvec tkn]
+  (when (not-empty tvec)
+    (let [pos-semi (.indexOf tvec \;) 
+          pos-semi (if (pos? pos-semi) pos-semi (count tvec)) ; In testing, might not have full item; not semi. 
+          pos-tkn  (.indexOf tvec tkn)]
+      (cond (== pos-tkn  -1) nil,
             (and (pos? pos-semi) (< pos-semi pos-tkn)) nil,
             :else pos-tkn))))
 
-;;; Alternative: https://stackoverflow.com/questions/24754552/repeat-string-character-with-format
-;;; (cl-format *out* "~%~v{~A~:*~}==> ~A" (-> ~pstate :tags count) " " ~tag))
-(def lstr "A long string" "                                                                              ")
+(def balanced { \} \{, \) \(, \] \[})
+
+;;; (find-unbalanced-token [ \[ :a :b :c \] \[ :x \| :y \]] 7 \])
+
+(defn find-unbalance-token
+  "Ignore every argument closing token that has the corresponding opening token before POS.
+   Return any closing opening that doesn't close before POS." 
+  [tvec pos tkn])
+
+(defn nspaces
+  "Return a string of n spaces."
+  [n]
+  (reduce (fn [s _] (str s " ")) "" (range n))
+  ;;(subs <a long string> n))           about as good.
+  ;;(cl-format nil "~v{~A~:*~}" n " ")) slower  for 20 spaces
+  ;;(apply str (repeat n " ")))         slowest for 20 spaces 
+  )
+
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod parse ~tag [~'tag ~pstate ~@(or keys-form '(& ignore))]
-     (when @debugging? (cl-format *out* "~%~A==> ~A" (subs lstr 0 (-> ~pstate :tags count)) ~tag))
+     (when @debugging? (cl-format *out* "~%~A==> ~A" (nspaces (-> ~pstate :tags count)) ~tag))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
@@ -231,7 +245,7 @@
            ~@body))
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
-       (do (when @debugging? (cl-format *out* "~%~A<-- ~A" (subs lstr 0 (-> ~pstate :tags count)) ~tag))
+       (do (when @debugging? (cl-format *out* "~%~A<-- ~A" (nspaces (-> ~pstate :tags count)) ~tag))
            ~pstate))))
 
 ;;; Abbreviated for simple forms such as builtins. 
@@ -259,20 +273,36 @@
 
 (defmulti parse #'parse-dispatch)
 
-(defn parse-mzn
-  "Top-level parsing from tokenized stream TOKENS."
-  [tokens]
-  (let [pstate {:tokens (vec tokens) :tkn (-> tokens first :tkn) :tags [] :local []}]
-    (parse ::model pstate)))
+(defn make-pstate
+  "Make a parse state map from tokens, includes separating comments from code."
+  [tokens+comments]
+  (let [tokens (remove #(instance? MznEOLcomment (:tkn %)) tokens+comments)
+        comments (->> tokens+comments
+                      (filter #(instance? MznEOLcomment (:tkn %)))
+                      (mapv #(->MznEOLcomment (-> % :tkn :text) (:line %) (:col %))))]
+  {:tokens (vec tokens)
+   :tkn (-> tokens first :tkn)
+   :tags []
+   :local []
+   :comments comments}))
+
+;;; (parse-string ::var-decl-item "array[Workers, Tasks] of int: cost;")
+(defn parse-string
+  "Toplevel parsing function"
+  ([str] (parse-string ::model str))
+  ([tag str]
+    (let [pstate (->> str tokenize make-pstate (parse tag))]
+      (if (not= (:tkn pstate) :eof)
+        (do (when @debugging? (println "\n\nPARSING ENDED PREMATURELY."))
+            (assoc pstate :error {:reason "Parsing ended prematurely."}))
+        pstate))))
 
 (defn parse-file
   "Parse a whole file given a filename string."
   [filename]
-  (let [ps (->> filename slurp tokenize (remove #(instance? MznEOLcomment %)) vec parse-mzn)]
-    (if (not= (:tkn ps) :eof)
-      (assoc ps :error {:reason "Parsing ended prematurely."})
-      ps)))
+  (parse-string ::model (slurp filename)))
 
+;;;========================= Implementation of Grammar ==========================
 (defn parse-list
   "Does parse parametrically for <open-char> [ <item> ','... ] <close-char>"
   ([pstate char-open char-close]
@@ -318,7 +348,6 @@
              ?ps
              (recur (cond-> ?ps (= \, (:tkn ?ps)) (eat-token \,))))))))))
 
-;;; ========================Production rules ====================================================
 ;;; <builtin-num-bin-op> ::= + | - | * | / | div | mod
 (def builtin-num-bin-op #{\+ \- \* \/ :dif :mod})
 (defparse-auto :builtin-bin-op builtin-num-bin-op)
@@ -367,19 +396,15 @@
 ;;; <model>::= [ <item> ; ... ]
 (defrecord MznModel [items])
 (defparse ::model ; top-level grammar element. 
-  [pstate]
+  [pstate] 
   (loop [ps (assoc pstate :model (->MznModel []))]
     (if (= :eof (:tkn ps))
       (assoc ps :result {:items :success}) ; :result needed for spec
       (recur 
-       ;(if (instance? MznEOLcomment (:tkn ps)) ; POD I'm removing comments
-       ;  (as-> ps ?ps
-       ;    (update-in ?ps [:model :items] conj (:tkn ?ps))
-        ;   (eat-token ?ps))
-         (as-> ps ?ps
-           (parse ::item ?ps)
-           (update-in ?ps [:model :items] conj (:result ?ps))
-           (eat-token ?ps \;))))))
+       (as-> ps ?ps
+         (parse ::item ?ps)
+         (update-in ?ps [:model :items] conj (:result ?ps))
+         (eat-token ?ps \;))))))
 
 (defn var-decl? 
   "Returns true if head looks like it can start a var-decl"
@@ -391,7 +416,7 @@
         (= \{ tkn)                                   ; 
         (#{:ann :opt} tkn)                           ; others
         (instance? MznTypeInstVar tkn)               ; base-ti-expr-tail ... <ti-variable-expr-tail>
-        (find-token pstate :..-op))))                ; base-ti-expr-tail ... <num-expr> ".."  <num-expr> 
+        (find-token (token-vec pstate) :..-op))))                ; base-ti-expr-tail ... <num-expr> ".."  <num-expr> 
       
 ;;; <item>::= <include-item> | <var-decl-item> | <assign-item> | <constraint-item> | <solve-item> |
 ;;;            <output-item> | <predicate-item> | <test-item> | <function-item> | <annotation-item>
@@ -400,15 +425,15 @@
   (let [tkn  (:tkn pstate)
         tkn2 (look pstate 1)]
     (cond (= tkn :include)                (parse ::include-item pstate),
-          (var-decl? pstate)              (parse ::var-decl-item pstate),
-          (and (instance? MznId tkn) (= tkn2 \=)) (parse ::assign-item pstate),
+           (and (instance? MznId tkn) (= tkn2 \=)) (parse ::assign-item pstate),
           (= tkn :constraint)             (parse ::constraint-item pstate),
           (= tkn :solve)                  (parse ::solve-item pstate),
           (= tkn :output)                 (parse ::output-item pstate),
           (= tkn :predicate)              (parse ::predicate-item pstate),
           (= tkn :test)                   (parse ::test-item pstate),
           (= tkn :function)               (parse ::function-item pstate),
-          (= tkn :ann)                    (parse ::annotation-item pstate) ; I don't think "annotation" is a keyword. 
+          (= tkn :ann)                    (parse ::annotation-item pstate) ; I don't think "annotation" is a keyword.
+          (var-decl? pstate)              (parse ::var-decl-item pstate),
           :else (assoc pstate :error {:expected "a MZn item" :got (:tkn pstate) :in :item :line (:line pstate)}))))
 
 ;;; 4.1.6 Each type has one or more possible instantiations. The instantiation of a variable or value indicates
@@ -493,15 +518,6 @@
 (defrecord MznVarDecl [lhs rhs anns])
 (s/def ::var-decl-item
   (s/keys :req-un [::lhs ::rhs ::anns]))
-
-;;; (parse-string ::var-decl-item "array[Workers, Tasks] of int: cost;")
-(defn parse-string
-  "Takes a tag and a string to parse. Good for debugging."
-  [tag str]
-  (let [tokens (->> str tokenize (remove #(instance? MznEOLcomment %)) vec)
-        pstate {:tokens tokens :tkn (-> tokens first :tkn) :tags [] :local []
-                :line (-> tokens first :line) :col (-> tokens first :col)}]
-    (parse tag pstate)))
 
 ;(parse-ok? ::var-decl-item  " array[Workers, Tasks] of int: cost;")
 (defn parse-ok?
@@ -697,7 +713,7 @@
               (assoc-in ?ps [:result :optional?] true)),
           (= tkn \{)                        ; "{" <expr>, ... "}" 
           (parse ::set-literal pstate),
-          (find-token pstate :..-op)        ; <num-expr> ".."  <num-expr> ; call it a range expression
+          (find-token (token-vec pstate) :..-op)        ; <num-expr> ".."  <num-expr> ; call it a range expression
           (parse ::num-expr pstate)
           :else
           (assoc pstate :error {:expected :base-ti-expr-tail :tkn (:tkn pstate)
@@ -870,22 +886,29 @@
 ;;; A generator call expression has form
 ;;; 〈agg-func〉 ( 〈generator-exp〉 ) ( 〈exp〉 )
 ;;; The round brackets around the generator expression 〈generator-exp〉 and the constructor
-;;; expression 〈exp〉 are not optional: they must be there. 
+;;; expression 〈exp〉 are not optional: they must be there.
+
+;;; Here we need to distinguish between x-literals and x-comps (where x in {array, set}).
+;;; Ignore all the balanced syntax and return the pos of first closing syntax after the \|. 
+;;; (find-unbalanced-token [ \[ :a :b :c \] \[ :x \| :y \]] 7 \]) ==> 4
 
 ;;;  <expr-atom-head> ::= <part1> |
 ;;;                       <set-literal> | <set-comp> | <array-literal> | <array-comp> | <array-literal-2d> |
 ;;;                       <ann-literal> | <if-then-else-expr> | <let-expr> | <call-expr> |
 ;;;                       <gen-call-expr>
 (defn part2 [pstate tkn]
-  (let [pos1 (find-token pstate \})
-        pos2 (find-token pstate \|)
-        pos3 (find-token pstate \])
+  (let [tvec (token-vec pstate)
+        gen-bar     (find-token tvec \|)
+        close-set   (find-token tvec \})
+        close-array (find-token tvec \])
+        ;close-set   (if gen-bar (find-balanced-token tvec gen-bar \}) (find-token tvec \}))
+        ;close-array (if gen-bar (find-balanced-token tvec gen-bar \]) (find-token tvec \]))
         tkn2 (look pstate 1)]
-    (cond (and (= tkn \{) (or (not pos2) (and pos1 (< pos1 pos2))))   ; <set-literal>
+    (cond (and (= tkn \{) (or (not gen-bar) (and close-set (< close-set gen-bar))))      ; <set-literal>
           (parse ::set-literal pstate),                                
           (= tkn \{)                                                  ; <set-comp>
           (parse ::set-comp pstate),                                   
-          (and (= tkn \[) (or (not pos2) (and pos3 (< pos3 pos2))))   ; <array-literal>
+          (and (= tkn \[) (or (not gen-bar) (and close-array (< close-array gen-bar))))   ; <array-literal>
           (parse ::array-literal pstate),
           (= tkn \[)                                                  ; <array-comp>
           (parse ::array-comp pstate),
@@ -1137,7 +1160,7 @@
 (defparse ::comp-tail
   [pstate]
   (as-> pstate ?ps
-    (parse-list-terminated ?ps #(#{:where \)} %) ::generator)
+    (parse-list-terminated ?ps #(#{:where \) \]} %) ::generator)
     (store ?ps :generators)
     (if (= :where (:tkn ?ps))
       (as-> ?ps ?ps1
