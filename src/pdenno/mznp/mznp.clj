@@ -51,7 +51,7 @@
     "forall", "exists", "xorall", "clause", "iffall"})
 
 (def ^:private mzn-long-syntactic ; chars that COULD start a multi-character syntactic elements. 
-  #{\., \,, \\, \/, \<, \>, \=, \!, \+, \|, \[, \], \:})
+  #{\., \,, \\, \/, \<, \>, \=, \!, \+, \|, \[, \], \: \-})
 
 (def ^:private mzn-syntactic ; chars that are valid tokens in themselves. 
   #{\[, \], \(, \), \{, \}, \=, \^, \,, \:, \;, \|, \*, \+, \-, \<, \>}) ; not \_
@@ -202,7 +202,10 @@
              (assoc :error {:expected test :got (:tkn pstate) :in "eat-token" :line (:line pstate) :col (:col pstate)})
              (assoc :tkn :eof)))))))
 
-(defn token-vec [pstate] (map :tkn (:tokens pstate)))
+(defn token-vec [pstate] (mapv :tkn (:tokens pstate)))
+
+(def balanced-map "What balances with the opening syntax?" { \{ \}, \( \), \[ \] :2d-array-open :2d-array-close})
+(def balanced-inv (sets/map-invert balanced-map))
   
 (defn find-token
   "Return position if tkn is found within the item (before semicolon)."
@@ -215,20 +218,43 @@
             (and (pos? pos-semi) (< pos-semi pos-tkn)) nil,
             :else pos-tkn))))
 
-(def balanced { \} \{, \) \(, \] \[})
+;;; (find-token-balanced [ \{, \{, :foo, \}, \}, ] \}) ==> 4
+(defn find-token-balanced
+  "Return the position of a balanced instance of the argument token (a close-syntax token).
+   Thus if tvec is [ \\{, \\{, foo, \\}, \\}, ] it is 4, not 3. Return nil if none."
+  [tvec close-tkn]
+  (when-let [open-tkn (balanced-inv close-tkn)]
+    (assert (= open-tkn (first tvec)))
+    (loop [cnt 1
+           pos 0
+           tvec (rest tvec)]
+      (cond (== 0 cnt) pos
+            (empty? tvec) nil
+            :else
+            (let [tkn (first tvec)]
+              (recur (cond (= tkn open-tkn)  (inc cnt)
+                           (= tkn close-tkn) (dec cnt)
+                           :else cnt)
+                     (inc pos)
+                     (rest tvec)))))))
 
-;;; (find-unbalanced-token [ \[ :a :b :c \] \[ :x \| :y \]] 7 \])
-
-(defn find-unbalance-token
-  "Ignore every argument closing token that has the corresponding opening token before POS.
-   Return any closing opening that doesn't close before POS." 
-  [tvec pos tkn])
+(defn balanced? 
+  "Return true if, before position POS there is a closing syntax character for each 
+  argument TKN opening syntax character." 
+  [tvec open-tkn pos]
+  (let [close-tkn (get balanced-map open-tkn)]
+    (== 0 (reduce (fn [cnt tkn]
+                    (cond (= tkn open-tkn) (inc cnt)
+                          (= tkn close-tkn) (dec cnt)
+                          :else cnt))
+                  0
+                  (subvec tvec 0 pos)))))
 
 (defn nspaces
   "Return a string of n spaces."
   [n]
   (reduce (fn [s _] (str s " ")) "" (range n))
-  ;;(subs <a long string> n))           about as good.
+  ;;(subs <a long string> 0 n))         about as good.
   ;;(cl-format nil "~v{~A~:*~}" n " ")) slower  for 20 spaces
   ;;(apply str (repeat n " ")))         slowest for 20 spaces 
   )
@@ -241,8 +267,7 @@
        (update-in ~pstate [:local] #(into [{}] %))
        (if (:error ~pstate) ; Stop things
          ~pstate 
-         (as-> ~pstate ~pstate
-           ~@body))
+         ~@body)
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
        (do (when @debugging? (cl-format *out* "~%~A<-- ~A" (nspaces (-> ~pstate :tags count)) ~tag))
@@ -302,6 +327,15 @@
   [filename]
   (parse-string ::model (slurp filename)))
 
+(defn parse-ok?
+  "Return true if the string parses okay."
+  [tag text]
+  (as-> (parse-string tag text) ?pstate
+    (and (not (contains? ?pstate :error))
+         (= :eof (-> ?pstate :tokens first :tkn))
+         (or (not (contains? (s/registry) tag))
+             (s/valid? tag (:result ?pstate))))))
+
 ;;;========================= Implementation of Grammar ==========================
 (defn parse-list
   "Does parse parametrically for <open-char> [ <item> ','... ] <close-char>"
@@ -349,7 +383,7 @@
              (recur (cond-> ?ps (= \, (:tkn ?ps)) (eat-token \,))))))))))
 
 ;;; <builtin-num-bin-op> ::= + | - | * | / | div | mod
-(def builtin-num-bin-op #{\+ \- \* \/ :dif :mod})
+(def builtin-num-bin-op #{\+ \- \* \/ :div :mod})
 (defparse-auto :builtin-bin-op builtin-num-bin-op)
 
 ;;;  <builtin-bin-op> ::= <-> | -> | <- | \/ | xor | /\ | < | > | <= | >= | == | = | != | in |
@@ -384,7 +418,7 @@
               builtin-quantifier
               builtin-constraint))
 
-(def builtin-agg-fn #{:sum :product}) ; I'm guessing see page 23 of Tutorial
+(def builtin-agg-fn #{:sum :product :min :max}) ; I'm guessing see page 23 of Tutorial
 
 (def builtin-gen-call-fn
   (sets/union builtin-agg-fn builtin-quantifier))
@@ -425,7 +459,6 @@
   (let [tkn  (:tkn pstate)
         tkn2 (look pstate 1)]
     (cond (= tkn :include)                (parse ::include-item pstate),
-           (and (instance? MznId tkn) (= tkn2 \=)) (parse ::assign-item pstate),
           (= tkn :constraint)             (parse ::constraint-item pstate),
           (= tkn :solve)                  (parse ::solve-item pstate),
           (= tkn :output)                 (parse ::output-item pstate),
@@ -433,6 +466,7 @@
           (= tkn :test)                   (parse ::test-item pstate),
           (= tkn :function)               (parse ::function-item pstate),
           (= tkn :ann)                    (parse ::annotation-item pstate) ; I don't think "annotation" is a keyword.
+          (and (instance? MznId tkn) (= tkn2 \=)) (parse ::assign-item pstate),
           (var-decl? pstate)              (parse ::var-decl-item pstate),
           :else (assoc pstate :error {:expected "a MZn item" :got (:tkn pstate) :in :item :line (:line pstate)}))))
 
@@ -519,16 +553,6 @@
 (s/def ::var-decl-item
   (s/keys :req-un [::lhs ::rhs ::anns]))
 
-;(parse-ok? ::var-decl-item  " array[Workers, Tasks] of int: cost;")
-(defn parse-ok?
-  "Return true if the string parses okay."
-  [tag text]
-  (as-> (parse-string tag text) ?pstate
-    (and (not (contains? ?pstate :error))
-         (= :eof (-> ?pstate :tokens first :tkn))
-         (or (not (contains? (s/registry) tag))
-             (s/valid? tag (:result ?pstate))))))
-
 ;;; <var-decl-item> ::= <ti-expr-and-id> <annotations> [ "=" <expr> ]
 (defparse ::var-decl-item
   [pstate]
@@ -595,7 +619,7 @@
     (parse ::expr-atom-head ?ps)
     (store ?ps :head)
     (parse ::expr-atom-tail ?ps)
-    (->MznAnnotation (recall ?ps :head) (:result ?ps))))
+    (assoc ?ps :result (->MznAnnotation (recall ?ps :head) (:result ?ps)))))
 
 (defrecord MznPredItem [pred])
 ;;; <predicate-item> ::= predicate <operation-item-tail>
@@ -769,7 +793,7 @@
        (= \' (look pstate 3))))
 
 (defrecord MznExpr [atom tail])
-;;; I think the grammar is botched here. <expr-binop-tail> should be optional. 
+;;; I think the grammar is botched here. <expr-binop-tail> should be optional. That's 
 ;;;  4.1.7.1 Expression Overview
 ;;; <expr> ::= <expr-atom> <expr-binop-tail>
 (defparse ::expr
@@ -873,7 +897,7 @@
         (-> pstate                              
             eat-token
             (assoc :result \_)),
-        (#{false true} tkn)                    ; bool-literal
+        (#{:false :true} tkn)                  ; bool-literal
         (parse ::bool-literal pstate),
         (integer? tkn)                         ; int-literal
         (parse ::int-literal pstate),
@@ -882,15 +906,20 @@
         (instance? MznString tkn)              ; string-literal
         (parse ::string-literal pstate)))
 
+(defn gen-call-expr? [tvec]
+  (let [pos-close (find-token tvec \))
+        pos-in (find-token tvec :in)]
+    (and (builtin-gen-call-fn (first tvec))
+         (= (nth tvec 1) \()
+         pos-close
+         pos-in
+         (< pos-in pos-close))))
+
 ;;; From page 23 of the tutorial:
 ;;; A generator call expression has form
 ;;; 〈agg-func〉 ( 〈generator-exp〉 ) ( 〈exp〉 )
 ;;; The round brackets around the generator expression 〈generator-exp〉 and the constructor
 ;;; expression 〈exp〉 are not optional: they must be there.
-
-;;; Here we need to distinguish between x-literals and x-comps (where x in {array, set}).
-;;; Ignore all the balanced syntax and return the pos of first closing syntax after the \|. 
-;;; (find-unbalanced-token [ \[ :a :b :c \] \[ :x \| :y \]] 7 \]) ==> 4
 
 ;;;  <expr-atom-head> ::= <part1> |
 ;;;                       <set-literal> | <set-comp> | <array-literal> | <array-comp> | <array-literal-2d> |
@@ -898,19 +927,23 @@
 ;;;                       <gen-call-expr>
 (defn part2 [pstate tkn]
   (let [tvec (token-vec pstate)
-        gen-bar     (find-token tvec \|)
-        close-set   (find-token tvec \})
-        close-array (find-token tvec \])
-        ;close-set   (if gen-bar (find-balanced-token tvec gen-bar \}) (find-token tvec \}))
-        ;close-array (if gen-bar (find-balanced-token tvec gen-bar \]) (find-token tvec \]))
+        gen-bar-pos   (find-token tvec \|)
+        close-set-pos (and (= (first tvec) \{) (find-token-balanced tvec \}))
+        close-arr-pos (and (= (first tvec) \[) (find-token-balanced tvec \]))
+        balanced-set? (or (not gen-bar-pos) (balanced? tvec \{ gen-bar-pos))
+        balanced-arr? (or (not gen-bar-pos) (balanced? tvec \[ gen-bar-pos))
         tkn2 (look pstate 1)]
-    (cond (and (= tkn \{) (or (not gen-bar) (and close-set (< close-set gen-bar))))      ; <set-literal>
+    (cond (and (= tkn \{) (or (not gen-bar-pos)
+                              (and close-set-pos (< close-set-pos gen-bar-pos))
+                              balanced-set?))                         ; <set-literal>
           (parse ::set-literal pstate),                                
           (= tkn \{)                                                  ; <set-comp>
           (parse ::set-comp pstate),                                   
-          (and (= tkn \[) (or (not gen-bar) (and close-array (< close-array gen-bar))))   ; <array-literal>
+          (and (= tkn \[) (or (not gen-bar-pos)
+                              (and close-arr-pos (< close-arr-pos gen-bar-pos))
+                              balanced-arr?))                         ; <array-literal>
           (parse ::array-literal pstate),
-          (= tkn \[)                                                  ; <array-comp>
+          (= tkn \[)                                                  ; <array-comp>  "[ s[i] | i in 1..n]"
           (parse ::array-comp pstate),
           (= tkn :2d-array-open)                                      ; <array-literal-2d>
           (parse ::array-literal-2d pstate),
@@ -920,7 +953,7 @@
           (parse ::if-then-else-expr pstate),                          
           (= tkn :let)                                                ; <let-expr>
           (parse ::let-expr),                                          
-          (builtin-gen-call-fn tkn) ; POD I'm making this up          ; <gen-call-expr> e.g. "sum (w in Workers) (cost[w,doesTask[w]])"
+          (gen-call-expr? tvec)     ; POD I'm making this up          ; <gen-call-expr> e.g. "sum (w in Workers) (cost[w,doesTask[w]])"
           (parse ::gen-call-expr pstate)                              ;                       OR forall    
           (or (builtin-op tkn)                                        ; <call-expr>
               (and (instance? MznId tkn)
@@ -991,7 +1024,7 @@
       (eat-token ?ps \'))))
 
 ;;; <bool-literal> ::= false | true
-(defparse-auto ::bool-literal #{false true})
+(defparse-auto ::bool-literal #{:false :true})
 (defparse-auto ::int-literal #(integer? %))
 (defparse-auto ::float-literal #(float? %))
 (defparse-auto ::string-literal #(instance? MznString %))
@@ -1184,6 +1217,7 @@
     (assoc ?ps :result (->MznGenerator (recall ?ps :ids) (:result ?ps)))))
 
 ;;; <gen-call-expr> ::= <ident-or-quoted-op> "(" <comp-tail> ")" "(" <expr> ")"
+
 ;;; See https://www.minizinc.org/doc-2.2.0/en/spec.html#spec-generator-call-expressions
 ;;; I am improvizing since I don't understand the spec at this point!
 ;;;
