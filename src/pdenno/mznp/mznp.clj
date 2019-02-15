@@ -1,4 +1,5 @@
 (ns pdenno.mznp.mznp
+  "Parse MiniZinc to records."
   (:require [clojure.pprint :refer (cl-format pprint)]
             [clojure.string :as str]
             [clojure.set    :as sets]
@@ -479,7 +480,7 @@
 ;;;; POD I don't see where this is used
 
 ;;; <ti-expr-and-id> ::= <ti-expr> ":" <ident>
-(defrecord MznIdDef [id type])
+(defrecord MznIdDef [id id-type])
 (defparse ::ti-expr-and-id
   [pstate]
   (as-> pstate ?ps
