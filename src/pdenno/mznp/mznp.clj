@@ -3,7 +3,8 @@
   (:require [clojure.pprint :refer (cl-format pprint)]
             [clojure.string :as str]
             [clojure.set    :as sets]
-            [clojure.spec.alpha :as s]))
+            [clojure.spec.alpha :as s]
+            [pdenno.mznp.utils :as util]))
 
 ;;; Purpose: Parse minizinc .mzn. 
 ;;; The 'defparse' parsing functions pass around complete state. 
@@ -29,12 +30,7 @@
 ;;; Footnote 1: Though I might have grabbed productions from an earlier version of MiniZinc,
 ;;;             I am updating to 2.2.0 wherever I find discrepancies. 
 
-(def ^:private diag (atom nil))
 (def debugging? (atom true)) 
-(defn toggle-debugging []
-  (if @debugging?
-    (reset! debugging? false)
-    (reset! debugging? true)))
 
 ;;; ============ Tokenizer ===============================================================
 ;;; POD Could add to this from library...
@@ -251,18 +247,9 @@
                   0
                   (subvec tvec 0 pos)))))
 
-(defn nspaces
-  "Return a string of n spaces."
-  [n]
-  (reduce (fn [s _] (str s " ")) "" (range n))
-  ;;(subs <a long string> 0 n))         about as good.
-  ;;(cl-format nil "~v{~A~:*~}" n " ")) slower  for 20 spaces
-  ;;(apply str (repeat n " ")))         slowest for 20 spaces 
-  )
-
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod parse ~tag [~'tag ~pstate ~@(or keys-form '(& ignore))]
-     (when @debugging? (cl-format *out* "~%~A==> ~A" (nspaces (-> ~pstate :tags count)) ~tag))
+     (when @debugging? (cl-format *out* "~%~A==> ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
@@ -271,7 +258,7 @@
          ~@body)
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
-       (do (when @debugging? (cl-format *out* "~%~A<-- ~A" (nspaces (-> ~pstate :tags count)) ~tag))
+       (do (when @debugging? (cl-format *out* "~%~A<-- ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
            ~pstate))))
 
 ;;; Abbreviated for simple forms such as builtins. 
@@ -891,7 +878,7 @@
           (eat-token ?ps)
           (parse ::expr ?ps)
           (eat-token ?ps \))
-          (assoc ?ps :result (map->MznExpr {:atom (:result ?ps)}))),
+          (assoc ?ps :result (map->MznExpr {:primary? true :atom (:result ?ps)}))),
         (ident-or-quoted-op? pstate)           ; <ident-or-quoted-op>
         (parse ::ident-or-quoted-op pstate),
         (= \_ tkn)                             ; _
@@ -1250,20 +1237,3 @@
             (recall ?ps :gen-call-op)
             (recall ?ps :comp-tail)
             (recall ?ps :expr)))))
-
-;;;(defrecord MznCallExpr [op args])
-;;; <call-expr> ::= <ident-or-quoted-op> [ "(" <expr> "," ... ")" ]
-
-;;;=== General =========================
-(defn ppp []
-  (binding [clojure.pprint/*print-right-margin* 140]
-    (pprint *1)))
-
-(defn ppprint [arg]
-  (binding [clojure.pprint/*print-right-margin* 140]
-    (pprint arg)))
-
-(defn break
-  ([] (throw (ex-info "Break!" {})))
-  ([text] (throw (ex-info text {})))
-  ([text args] (throw (ex-info text args))))

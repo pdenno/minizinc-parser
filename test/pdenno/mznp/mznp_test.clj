@@ -33,8 +33,7 @@
 
       (is (parse-ok? ::mznp/generator             "w in Workers"))
       (is (parse-ok? ::mznp/gen-call-expr         "sum (w in Workers) (cost[w,doesTask[w]])"))
-      (is (parse-ok? ::mznp/gen-call-expr
-                     "forall (i,j in Domain where i<j) (noattack(i, j, queens[i], queens[j]))"))
+      (is (parse-ok? ::mznp/gen-call-expr         "forall (i,j in Domain where i<j) (noattack(i, j, queens[i], queens[j]))"))
       (is (parse-ok? ::mznp/call-expr             "noattack(i, j, queens[i], queens[j])"))
       (is (parse-ok? ::mznp/set-ti-expr-tail      "set of int"))
       (is (parse-ok? ::mznp/base-ti-expr-tail     "int"))
@@ -49,7 +48,6 @@
       
       (reset! debugging? db?))))
 
-;;; POD Use refactored parse-ok? here. Do spec work separately, starting at ::model. (default when not like parse-string usage).
 (deftest whole-models
   (testing "that valid models compile okay."
     (is (-> (parse-file "data/simplest.mzn") :error not))
