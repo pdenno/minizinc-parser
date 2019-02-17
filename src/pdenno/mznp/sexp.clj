@@ -24,7 +24,7 @@
      (do (when @debugging? (cl-format *out* "~A<-- ~A returns ~S~%" (util/nspaces (count @tags)) ~tag result#))
          result#))))
 
-(declare map-simplify remove-nils rewrite op-precedence)
+(declare map-simplify remove-nils rewrite precedence op-precedence fix-precedence)
 
 (defn sexp-simplify
   "Toplevel function to transform the structure produced by the parser to something useful."
@@ -38,11 +38,12 @@
   "Recursively traverse the map structures changing records to maps, 
    removing nil map values, and adding :type value named after the record."
   [m]
-  (if (record? m)
-    (-> {:type (-> m .getClass .getSimpleName keyword)} ; BTW, nothing from the parse has a :type. 
-        (into (zipmap (keys m) (map record2map (vals m))))
-        remove-nils)
-    m))
+  (cond (record? m)
+        (-> {:type (-> m .getClass .getSimpleName keyword)} ; BTW, nothing from the parse has a :type. 
+            (into (zipmap (keys m) (map map-simplify (vals m))))
+            remove-nils),
+        (vector? m) (mapv map-simplify m),
+        :else m))
         
 (defn remove-nils
   "Remove map values that are nil."
@@ -62,6 +63,7 @@
   (let [tag
         (cond (map? obj)     (:type obj)
               (char? obj)    :char
+              (keyword obj)  :keyword
               :else          :default)]
     (rewrite-meth tag obj keys)))
 
@@ -74,7 +76,8 @@
             (into {:type :bin-op :lhs atom } (-> ?m :tail rewrite)), ; into: get :lhs? on the lhs
             :else (throw (ex-info "Some other tail" {:tail (:tail ?m)})))
       (cond-> ?m
-        primary? (assoc :type :bin-op-primary)))))
+        primary? (assoc :type :bin-op-primary))
+      (rewrite ?m)))) ; This fixes precedence (needs works; see NYI test case) and makes sexps.
 
 (defrewrite :MznExprBinopTail [m]
   {:op    (-> m :bin-op rewrite)
@@ -86,55 +89,76 @@
 (defrewrite :MznId [m]
   (-> m :name symbol))
 
-(defrewrite :char [m]
-  (-> m str symbol))
+(defrewrite :char [c]
+  (let [sc (symbol c)]
+    (if (contains? mzn2dsl-map sc)
+      (mzn2dsl-map sc)
+      (throw (ex-info "Unknown syntactic character" {:char c})))))
+
+(defrewrite :keyword [k]
+  (if (contains? mzn2dsl-map k)
+    (mzn2dsl-map k)
+    (throw (ex-info "Unknown keyword" {:key k}))))
 
 (defrewrite :default [m]
   m)
 
+;;;(forall [[j Jobs]]
+;;;  (<= (mznIdx endWeek j) (mznIdx WeeksTillDue j)))
+(defrewrite :MznGenCallExpr [m]
+  `(~(-> m :gen-call-op util/keysym)
+    ~(rewrite (:generator m))
+    ~(rewrite (:expr m))))
+
+(defrewrite :MznCompTail [m]
+  (mapv rewrite (:generators m)))
+
+(defrewrite :MznGenerator [m]
+  (vector (mapv rewrite (:ids m))
+          (rewrite (:expr m))))
+
 ;;; (test-rewrite ::mznp/expr "1*2-3") => {:lhs 1, :op *, :rhs? {:lhs 2, :op -, :rhs? 3}} *Not as intended!*
 ;;; (def foo   {:lhs 1,                      :op '*, :rhs {:lhs 2, :op '-, :rhs 3}})
 ;;; (def defoo {:lhs {:lhs 1 :op '* :rhs 2}, :op '-, :rhs 3})
-
-;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * binds tighter than +. 
-(defn fix-precedence [exp]
-  (if (map? exp)
-    (let [op1 (:op exp)
-          op2 (-> exp :rhs :op)]
-      (if (< (precedence op1) (precedence op2))
-        (let [rhs-save (:rhs exp)]
-          (-> exp
-              (assoc :lhs {:lhs (:lhs exp) :op (:op exp) :rhs (-> exp :rhs :lhs)})
+;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * binds tighter than +.
+;;; This fixes precedence, but as discussed 2019-02-16, it only does it for 3 expressions. 
+(defrewrite :bin-op [exp]
+  (let [op1 (:op exp)
+        op2 (-> exp :rhs :op)]
+    (as-> exp ?exp
+      (if (and op2 (< (precedence op1) (precedence op2)))
+        (let [rhs-save (:rhs ?exp)]
+          (-> ?exp
+              (assoc :lhs {:lhs (:lhs ?exp) :op (:op ?exp) :rhs (-> ?exp :rhs :lhs)})
               (assoc :op (:op rhs-save))
               (assoc :rhs (:rhs rhs-save))
-              (update :lhs fix-precedence)
-              (update :rhs fix-precedence)))
-        exp))
-    exp))
+              (update :lhs rewrite)
+              (update :rhs rewrite)))
+        ?exp)
+      (assoc ?exp :type :sexp-ready-bin-op)
+      (rewrite ?exp))))
 
-(defn make-sexp [m]
-  (if (map? m)
-    `(~(:op m) ~(make-sexp (:lhs m)) ~(make-sexp (:rhs m)))
-    m))
+(defrewrite :sexp-ready-bin-op [m]
+  `(~(:op m) ~(make-sexp (:lhs m)) ~(make-sexp (:rhs m))))
 
 ;;; MiniZinc Specification, section 7.2.
 ;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * binds tighter than +.
 
 (def op-precedence-table ; lower :val means binds tighter. 
-  {:<->-op {:assoc :left :val 1200}
-   :->-op  {:assoc :left :val 1100}
-   :<--op  {:assoc :left :val 1100}
-   :or-op  {:assoc :left :val 1000}
-   :xor    {:assoc :left :val 1000}
-   :and-op {:assoc :left :val 900}
-   '<      {:assoc :none :val 800}
-   '>      {:assoc :none :val 800}
-   :le-op  {:assoc :none :val 800}
-   :ge-op  {:assoc :none :val 800}
-   :eq-op  {:assoc :none :val 800}
-   '=      {:assoc :none :val 800}
-   :ne-op  {:assoc :none :val 800}
-   :in     {:assoc :none :val 700}
+  {:<->-op    {:assoc :left :val 1200}
+   :->-op     {:assoc :left :val 1100}
+   :<--op     {:assoc :left :val 1100}
+   :or-op     {:assoc :left :val 1000}
+   :xor       {:assoc :left :val 1000}
+   :and-op    {:assoc :left :val 900}
+   '<         {:assoc :none :val 800}
+   '>         {:assoc :none :val 800}
+   :<=        {:assoc :none :val 800}
+   :>=        {:assoc :none :val 800}
+   :==        {:assoc :none :val 800}
+   '=         {:assoc :none :val 800}
+   :not=      {:assoc :none :val 800}
+   :in        {:assoc :none :val 700}
    :subset    {:assoc :none :val 700}
    :superset  {:assoc :none :val 700}
    :union     {:assoc :left :val 600}
@@ -147,9 +171,14 @@
    :div       {:assoc :left :val 300}
    :mod       {:assoc :left :val 300}
    '/         {:assoc :left :val 300}
-   :intersec  {:assoc :left :val 300}   
+   :intersect {:assoc :left :val 300}   
    :++-op     {:assoc :right :val 200}
    :<ident>   {:assoc :left  :val 100}})
+
+;;; The DSL operators are just the Mzn keywords things as symbols. (This will probably change; ..-op yuk!)
+(def mzn2dsl-map 
+  (zipmap (keys op-precedence-table)
+          (mapv util/keysym (keys op-precedence-table))))
 
 (defn precedence [op]
   (if (contains? op-precedence-table op)
@@ -184,7 +213,7 @@
       (reset!      debugging?      db?)
       result)))
 
-
+;;;--- This would be part of a reconceptualization of fix-precedence See notes 2019-02-16. 
 (defn flatten-binop
   ([exp] (flatten-binop exp []))
   ([exp res]
@@ -199,8 +228,4 @@
                        (:op exp)
                        (flatten-binop (:rhs exp)))),
          :else exp)))
-         
-         
-        
-                 
-               
+

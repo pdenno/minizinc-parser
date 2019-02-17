@@ -14,6 +14,10 @@
   ;;(apply str (repeat n " ")))         slowest for 20 spaces 
   )
 
+(defn keysym [keyw]
+  "Turn a keyword into a symbol."
+  (symbol (name keyw)))
+
 ;;;=== General =========================
 (defn ppp []
   (binding [clojure.pprint/*print-right-margin* 140]

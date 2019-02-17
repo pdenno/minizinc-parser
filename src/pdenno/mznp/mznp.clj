@@ -62,12 +62,12 @@
     (when-let [result (cond (and (= c0 \.) (= c1 \.)) {:raw ".." :tkn :..-op}
                             (and (= c0 \-) (= c1 \>)) {:raw "->" :tkn :->-op}
                             (and (= c0 \<) (= c1 \-)) {:raw "<-" :tkn :<--op}
-                            (and (= c0 \\) (= c1 \/)) {:raw "\\/" :tkn :or-op}
-                            (and (= c0 \/) (= c1 \\)) {:raw "/\\" :tkn :and-op}
-                            (and (= c0 \<) (= c1 \=)) {:raw "<=" :tkn :le-op}
-                            (and (= c0 \>) (= c1 \=)) {:raw ">=" :tkn :ge-op}
-                            (and (= c0 \=) (= c1 \=)) {:raw "==" :tkn :eq-op}
-                            (and (= c0 \!) (= c1 \=)) {:raw "!=" :tkn :ne-op}
+                            (and (= c0 \\) (= c1 \/)) {:raw "\\/" :tkn :or}
+                            (and (= c0 \/) (= c1 \\)) {:raw "/\\" :tkn :and}
+                            (and (= c0 \<) (= c1 \=)) {:raw "<=" :tkn :<=}
+                            (and (= c0 \>) (= c1 \=)) {:raw ">=" :tkn :>=}
+                            (and (= c0 \=) (= c1 \=)) {:raw "==" :tkn :==}
+                            (and (= c0 \!) (= c1 \=)) {:raw "!=" :tkn :not=}
                             (and (= c0 \+) (= c1 \+)) {:raw "++" :tkn :++-op}
                             (and (= c0 \[) (= c1 \|)) {:raw "[|" :tkn :2d-array-open}
                             (and (= c0 \|) (= c1 \])) {:raw "|[" :tkn :2d-array-close}
@@ -377,7 +377,7 @@
 ;;;  <builtin-bin-op> ::= <-> | -> | <- | \/ | xor | /\ | < | > | <= | >= | == | = | != | in |
 ;;;                       subset | superset | union | diff | symdiff | .. | intersect| ++ | <builtin-num-bin-op>
 (def builtin-bin-op
-  (into #{:<->-op  :->-op  :<-op  :or-op  :xor :and-op \< \> :le-op :ge-op :eq-op \= :ne-op :in,
+  (into #{:<->-op  :->-op  :<-op  :or :xor :and \< \> :<= :>= :== \= :not= :in,
           :subset, :superset, :union, :diff, :symdiff, :..-op,  :intersect, :++-op}
         builtin-num-bin-op))
 (defparse-auto :builtin-bin-op builtin-bin-op)
@@ -1214,10 +1214,10 @@
 
 ;;; 2019-01-21: gen-call-expr must also include things like:
 ;;; "sum (w in Workers) (cost[w,doesTask[w]])"  (See pg 23 of the tutorial). 
-(defrecord MzGenCallExpr [gen-call-op generator expr])
+(defrecord MznGenCallExpr [gen-call-op generator expr])
 
 (s/def ::gen-call-expr
-  #(instance? MzGenCallExpr %))
+  #(instance? MznGenCallExpr %))
 
 (defparse ::gen-call-expr
   [pstate]
@@ -1233,7 +1233,7 @@
     (store ?ps :expr)    
     (eat-token ?ps \))
     (assoc ?ps :result
-           (->MzGenCallExpr
+           (->MznGenCallExpr
             (recall ?ps :gen-call-op)
             (recall ?ps :comp-tail)
             (recall ?ps :expr)))))
