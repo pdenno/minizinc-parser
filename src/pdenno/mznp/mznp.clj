@@ -18,7 +18,6 @@
 ;;;   :error   - non-nil when things go wrong
 ;;;   :local   - temporarily stored parse content used later to form a complete grammar element. It is a vector of maps.
 ;;;             :local is used by the macros 'store' and 'recall'. 
-;;;   :model   - the resulting cummulative parse structure
 
 ;;; Returns pstate: parse, eat-token, store, recall
 ;;; Returns something else: look, find-token
@@ -30,7 +29,7 @@
 ;;; Footnote 1: Though I might have grabbed productions from an earlier version of MiniZinc,
 ;;;             I am updating to 2.2.0 wherever I find discrepancies. 
 
-(def debugging? (atom true)) 
+(def debugging? (atom false)) 
 
 ;;; ============ Tokenizer ===============================================================
 ;;; POD Could add to this from library...
@@ -421,7 +420,9 @@
   [pstate] 
   (loop [ps (assoc pstate :model (->MznModel []))]
     (if (= :eof (:tkn ps))
-      (assoc ps :result {:items :success}) ; :result needed for spec
+      (-> ps
+          (assoc :result (:model ps))
+          (dissoc :model))
       (recur 
        (as-> ps ?ps
          (parse ::item ?ps)
@@ -438,7 +439,7 @@
         (= \{ tkn)                                   ; 
         (#{:ann :opt} tkn)                           ; others
         (instance? MznTypeInstVar tkn)               ; base-ti-expr-tail ... <ti-variable-expr-tail>
-        (find-token (token-vec pstate) :..-op))))                ; base-ti-expr-tail ... <num-expr> ".."  <num-expr> 
+        (find-token (token-vec pstate) :..-op))))    ; base-ti-expr-tail ... <num-expr> ".."  <num-expr> 
       
 ;;; <item>::= <include-item> | <var-decl-item> | <assign-item> | <constraint-item> | <solve-item> |
 ;;;            <output-item> | <predicate-item> | <test-item> | <function-item> | <annotation-item>
@@ -812,21 +813,20 @@
                         (recall ?ps :tail) 
                         (:result ?ps)))))
 
-(defrecord MznExprAtomTail [array-access])
+(defrecord MznArrayAccess [exprs])
 ;;;  <expr-atom-tail> ::= ε | <array-access-tail> <expr-atom-tail>
 (defparse ::expr-atom-tail
   [pstate]
   (if (= \[ (:tkn pstate))
     (as-> pstate ?ps
-      (assoc-in pstate [:local 0 :atoms] [])
-      (loop [ps ?ps]
-        (as-> ps ?ps1
-          (parse ::array-access-tail ?ps1)
-          (update-in ?ps1 [:local 0 :atoms] conj (:result ?ps1))
-          (if (not= \[ (:tkn ?ps1))
-            (assoc ?ps1 :result (->MznExprAtomTail (-> ?ps1 :local first :atoms)))
-            (recur ?ps1)))))
+      (parse ::array-access-tail ?ps)
+      (assoc ?ps :result (->MznArrayAccess (:result ?ps))))
     (assoc pstate :result nil)))
+
+;;; <array-access-tail> ::= "[" <expr> "," ... "]"
+(defparse ::array-access-tail
+  [pstate]
+  (parse-list pstate \[ \]))
 
 (defrecord MznExprBinopTail [bin-op expr])
 ;;; POD I think the grammar is botched here. The [ ] should be BNF optional, not terminals!
@@ -1086,11 +1086,6 @@
     (parse ::comp-tail ?ps)
     (assoc ?ps :result (->MznArrayComp (recall ?ps :expr) (:result ?ps)))
     (eat-token ?ps \])))
-
-;;; <array-access-tail> ::= "[" <expr> "," ... "]"
-(defparse ::array-access-tail
-  [pstate]
-  (parse-list pstate \[ \]))
 
 (defrecord MznAnnLiteral [ident exprs])
 ;;; <ann-literal> ::= <ident> [ "(" <expr> "," ... ")" ]

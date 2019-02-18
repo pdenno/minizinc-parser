@@ -51,7 +51,6 @@ constraint forall (lin in Lines, w1, w2 in Weeks
                ==
                (sum (j in Jobs) (if (LineOfJob[j] == lin) then WorkersOnJob[j,w2] else 0 endif)));
 
-
 % Nobody assigned when it isn't being worked. 
 constraint forall (j in Jobs, w in Weeks where w < startWeek[j])
   (WorkersOnJob[j,w] == 0);

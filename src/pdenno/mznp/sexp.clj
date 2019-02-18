@@ -8,6 +8,7 @@
             [pdenno.mznp.mznp :as mznp]))
 
 (def debugging? (atom false))
+(def diag (atom nil))
 (def tags (atom []))
 (def locals (atom [{}]))
 
@@ -24,15 +25,14 @@
      (do (when @debugging? (cl-format *out* "~A<-- ~A returns ~S~%" (util/nspaces (count @tags)) ~tag result#))
          result#))))
 
-(declare map-simplify remove-nils rewrite precedence op-precedence fix-precedence)
+(declare map-simplify remove-nils rewrite precedence op-precedence)
 
 (defn sexp-simplify
   "Toplevel function to transform the structure produced by the parser to something useful."
   [m]
   (-> m
       map-simplify
-      rewrite
-      fix-precedence))
+      rewrite))
 
 (defn map-simplify
   "Recursively traverse the map structures changing records to maps, 
@@ -63,9 +63,19 @@
   (let [tag
         (cond (map? obj)     (:type obj)
               (char? obj)    :char
-              (keyword obj)  :keyword
+              (keyword? obj) :keyword
               :else          :default)]
     (rewrite-meth tag obj keys)))
+
+;;;----------------------- Rewriting ---------------------------------------
+(defrewrite :MznModel [m]
+  (reduce (fn [res item]
+            (reset! diag {:item item})
+            (let [type (:type item)]
+              (cond (= :MznConstraint type)
+                    (update res :constraints conj (-> item :expr rewrite)))))
+          {:constraints []}
+          (:items m)))
 
 (defrewrite :MznExpr [m]
   (let [atom (-> m :atom rewrite)
@@ -84,7 +94,13 @@
    :rhs   (-> m :expr   rewrite)})
 
 (defrewrite :MznExprAtom [m]
-  (-> m :head rewrite))
+  (if (contains? m :tail)
+    `(mzn-array-access ~(-> m :head rewrite)
+                       ~@(-> m :tail rewrite))
+    (-> m :head rewrite)))
+
+(defrewrite :MznArrayAccess [m]
+  (mapv rewrite (:exprs m)))
 
 (defrewrite :MznId [m]
   (-> m :name symbol))
@@ -107,15 +123,15 @@
 ;;;  (<= (mznIdx endWeek j) (mznIdx WeeksTillDue j)))
 (defrewrite :MznGenCallExpr [m]
   `(~(-> m :gen-call-op util/keysym)
-    ~(rewrite (:generator m))
+    ~(rewrite (:generator m)) ; a MznCompTail.
     ~(rewrite (:expr m))))
 
 (defrewrite :MznCompTail [m]
   (mapv rewrite (:generators m)))
 
 (defrewrite :MznGenerator [m]
-  (vector (mapv rewrite (:ids m))
-          (rewrite (:expr m))))
+  (conj (mapv rewrite (:ids m))
+         (rewrite (:expr m))))
 
 ;;; (test-rewrite ::mznp/expr "1*2-3") => {:lhs 1, :op *, :rhs? {:lhs 2, :op -, :rhs? 3}} *Not as intended!*
 ;;; (def foo   {:lhs 1,                      :op '*, :rhs {:lhs 2, :op '-, :rhs 3}})
@@ -194,21 +210,20 @@
 (defn test-rewrite
   "mzn/parse-string and sexp-simplify, but with controls for partial evaluation, debugging etc.
    With no keys it does all steps without debug output."
-  [tag str & {:keys [simplify? rewrite? fix? debug? mznp-debug?] :as opts}]
+  [tag str & {:keys [none? simplify? rewrite? file? debug? debug-mznp?] :as opts}]
   (let [all? (not (or (contains? opts :simplify?)
                       (contains? opts :rewrite?)
-                      (contains? opts :fix?)))
+                      (contains? opts :none?)))
         mznp-db? @mznp/debugging?
         db?           @debugging?]
-    (reset! mznp/debugging? mznp-debug?)
+    (reset! mznp/debugging? debug-mznp?)
     (reset!      debugging? debug?)
-    (let [result (-> (mznp/parse-string tag str)
+    (let [result (-> (mznp/parse-string tag (if file? (slurp str) str))
                      :result
                      (cond->
-                         (or all? fix? rewrite? simplify?) map-simplify
-                         (or all? fix? rewrite?)           rewrite
-                         (or all? fix?)                    fix-precedence
-                         all?                              make-sexp))]
+                         (or all? rewrite? simplify?) map-simplify
+                         (or all? rewrite?)           rewrite
+                         all?                         make-sexp))]
       (reset! mznp/debugging? mznp-db?)
       (reset!      debugging?      db?)
       result)))
@@ -228,4 +243,3 @@
                        (:op exp)
                        (flatten-binop (:rhs exp)))),
          :else exp)))
-
