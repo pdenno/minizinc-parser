@@ -25,7 +25,7 @@
      (do (when @debugging? (cl-format *out* "~A<-- ~A returns ~S~%" (util/nspaces (count @tags)) ~tag result#))
          result#))))
 
-(declare map-simplify remove-nils rewrite precedence op-precedence)
+(declare map-simplify remove-nils rewrite precedence op-precedence mzn2dsl-map)
 
 (defn sexp-simplify
   "Toplevel function to transform the structure produced by the parser to something useful."
@@ -70,11 +70,14 @@
 ;;;----------------------- Rewriting ---------------------------------------
 (defrewrite :MznModel [m]
   (reduce (fn [res item]
-            (reset! diag {:item item})
             (let [type (:type item)]
               (cond (= :MznConstraint type)
-                    (update res :constraints conj (-> item :expr rewrite)))))
-          {:constraints []}
+                    (update res :constraints conj (-> item :expr rewrite))
+                    (#{:MznAssignment} type)
+                    (let [[k v] (rewrite item)]
+                      (assoc-in res [:assignments k] v)))))
+          {:constraints []
+           :assignments {}}
           (:items m)))
 
 (defrewrite :MznExpr [m]
@@ -87,7 +90,7 @@
             :else (throw (ex-info "Some other tail" {:tail (:tail ?m)})))
       (cond-> ?m
         primary? (assoc :type :bin-op-primary))
-      (rewrite ?m)))) ; This fixes precedence (needs works; see NYI test case) and makes sexps.
+      (rewrite ?m)))) ; This fixes precedence (needs works; see NYI test case)
 
 (defrewrite :MznExprBinopTail [m]
   {:op    (-> m :bin-op rewrite)
@@ -98,6 +101,9 @@
     `(mzn-array-access ~(-> m :head rewrite)
                        ~@(-> m :tail rewrite))
     (-> m :head rewrite)))
+
+(defrewrite :MznArray [m]
+  (mapv rewrite (:elems m)))
 
 (defrewrite :MznArrayAccess [m]
   (mapv rewrite (:exprs m)))
@@ -131,14 +137,17 @@
 
 (defrewrite :MznGenerator [m]
   (conj (mapv rewrite (:ids m))
-         (rewrite (:expr m))))
+        (rewrite (:expr m))))
+
+(defrewrite :MznAssignment [m]
+  [(-> m :lhs rewrite keyword) (-> m :rhs rewrite)])
 
 ;;; (test-rewrite ::mznp/expr "1*2-3") => {:lhs 1, :op *, :rhs? {:lhs 2, :op -, :rhs? 3}} *Not as intended!*
 ;;; (def foo   {:lhs 1,                      :op '*, :rhs {:lhs 2, :op '-, :rhs 3}})
 ;;; (def defoo {:lhs {:lhs 1 :op '* :rhs 2}, :op '-, :rhs 3})
 ;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * binds tighter than +.
 ;;; This fixes precedence, but as discussed 2019-02-16, it only does it for 3 expressions. 
-(defrewrite :bin-op [exp]
+(defrewrite :bin-op [exp] ; <====================== caller should make :bin-op-seq This would handle it. 
   (let [op1 (:op exp)
         op2 (-> exp :rhs :op)]
     (as-> exp ?exp
@@ -150,16 +159,12 @@
               (assoc :rhs (:rhs rhs-save))
               (update :lhs rewrite)
               (update :rhs rewrite)))
-        ?exp)
-      (assoc ?exp :type :sexp-ready-bin-op)
+        ?exp) ; March: Why :type in next?
+      (assoc ?exp :type `(~(:op ?exp) ~(:lhs ?exp) ~(:rhs ?exp)))
       (rewrite ?exp))))
 
-(defrewrite :sexp-ready-bin-op [m]
-  `(~(:op m) ~(make-sexp (:lhs m)) ~(make-sexp (:rhs m))))
-
 ;;; MiniZinc Specification, section 7.2.
-;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * binds tighter than +.
-
+;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * (300) binds tighter than + (400).
 (def op-precedence-table ; lower :val means binds tighter. 
   {:<->-op    {:assoc :left :val 1200}
    :->-op     {:assoc :left :val 1100}
@@ -194,14 +199,16 @@
 ;;; The DSL operators are just the Mzn keywords things as symbols. (This will probably change; ..-op yuk!)
 (def mzn2dsl-map 
   (zipmap (keys op-precedence-table)
-          (mapv util/keysym (keys op-precedence-table))))
+          (map util/keysym (keys op-precedence-table))))
 
 (defn precedence [op]
   (if (contains? op-precedence-table op)
     (-> op op-precedence-table :val)
     100))
 
+;;; (ops-with-precedence 300) ==> (:mod * :div / :intersect)
 (def ops-with-precedence
+  "Holds vectors of operators that share a precedence value (the index of the map)." 
   (reduce-kv (fn [m k v] (assoc m k (map first v)))
              {}
              (group-by second (map #(let [[k v] %] [k (:val v)])
@@ -222,8 +229,7 @@
                      :result
                      (cond->
                          (or all? rewrite? simplify?) map-simplify
-                         (or all? rewrite?)           rewrite
-                         all?                         make-sexp))]
+                         (or all? rewrite?)           rewrite))] 
       (reset! mznp/debugging? mznp-db?)
       (reset!      debugging?      db?)
       result)))

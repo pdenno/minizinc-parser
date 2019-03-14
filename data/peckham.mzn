@@ -23,7 +23,7 @@ array[Jobs] of int: WeeksTillDue;
 array[Jobs] of int: RequiredWorkEffort;
 
 % These three 'var' things are what we are trying to assign best values to. 
-% Number of workerss on the line in any week. 
+% Number of workers on the line in any week. 
 array [Jobs,Weeks] of var 0..workforce_size: WorkersOnJob;  
 % The week at which the work on the line starts.
 array [Jobs] of var 1..numWeeksScheduled: startWeek;

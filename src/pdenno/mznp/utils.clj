@@ -14,7 +14,7 @@
   ;;(apply str (repeat n " ")))         slowest for 20 spaces 
   )
 
-(defn keysym [keyw]
+(defn keysym [keyw] ; POD get rid of this. Too simple!
   "Turn a keyword into a symbol."
   (symbol (name keyw)))
 
