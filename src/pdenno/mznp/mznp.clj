@@ -61,8 +61,8 @@
     (when-let [result (cond (and (= c0 \.) (= c1 \.)) {:raw ".." :tkn :..-op}
                             (and (= c0 \-) (= c1 \>)) {:raw "->" :tkn :->-op}
                             (and (= c0 \<) (= c1 \-)) {:raw "<-" :tkn :<--op}
-                            (and (= c0 \\) (= c1 \/)) {:raw "\\/" :tkn :or}
-                            (and (= c0 \/) (= c1 \\)) {:raw "/\\" :tkn :and}
+                            (and (= c0 \\) (= c1 \/)) {:raw "\\/" :tkn :or-op}
+                            (and (= c0 \/) (= c1 \\)) {:raw "/\\" :tkn :and-op}
                             (and (= c0 \<) (= c1 \=)) {:raw "<=" :tkn :<=}
                             (and (= c0 \>) (= c1 \=)) {:raw ">=" :tkn :>=}
                             (and (= c0 \=) (= c1 \=)) {:raw "==" :tkn :==}
@@ -376,7 +376,7 @@
 ;;;  <builtin-bin-op> ::= <-> | -> | <- | \/ | xor | /\ | < | > | <= | >= | == | = | != | in |
 ;;;                       subset | superset | union | diff | symdiff | .. | intersect| ++ | <builtin-num-bin-op>
 (def builtin-bin-op
-  (into #{:<->-op  :->-op  :<-op  :or :xor :and \< \> :<= :>= :== \= :not= :in,
+  (into #{:<->-op  :->-op  :<-op  :or-op :xor-op :and-op \< \> :<= :>= :== \= :not= :in,
           :subset, :superset, :union, :diff, :symdiff, :..-op,  :intersect, :++-op}
         builtin-num-bin-op))
 (defparse-auto :builtin-bin-op builtin-bin-op)
@@ -855,7 +855,7 @@
              (not= tkn2 \())))) ; Prevent identification when it is a call-op without known builtin (e.g. noattack)
 
 (defrecord MznExprUnOp [uni-op atom])
-;;;  <expr-atom-head> ::= <builtin-un-op> <expr-atom> | ( <expr>) | <ident-or-quoted-op> |
+;;;  <expr-atom-head> ::= <builtin-un-op> <expr-atom> | ( <expr> ) | <ident-or-quoted-op> |
 ;;;                       _ | <bool-literal> | <int-literal> | <float-literal> | <string-literal> |
 ;;;                       <set-literal> | <set-comp> | <array-literal> | <array-literal-2d> |
 ;;;                       <array-comp> | <ann-literal> | <if-then-else-expr> | <let-expr> | <call-expr> |
@@ -873,12 +873,12 @@
           (eat-token ?ps)
           (parse ::expr-atom ?ps)
           (assoc ?ps :result (->MznExprUnOp tkn (:result ?ps)))),
-        (= \( tkn)                              ; ( <expr )
+        (= \( tkn)                              ; ( <expr> )
         (as-> pstate ?ps
           (eat-token ?ps)
           (parse ::expr ?ps)
           (eat-token ?ps \))
-          (assoc ?ps :result (map->MznExpr {:primary? true :atom (:result ?ps)}))),
+          (assoc ?ps :result (assoc (:result ?ps) :primary? true))),
         (ident-or-quoted-op? pstate)           ; <ident-or-quoted-op>
         (parse ::ident-or-quoted-op pstate),
         (= \_ tkn)                             ; _
@@ -1209,7 +1209,7 @@
 
 ;;; 2019-01-21: gen-call-expr must also include things like:
 ;;; "sum (w in Workers) (cost[w,doesTask[w]])"  (See pg 23 of the tutorial). 
-(defrecord MznGenCallExpr [gen-call-op generator expr])
+(defrecord MznGenCallExpr [gen-call-op generators where body])
 
 (s/def ::gen-call-expr
   #(instance? MznGenCallExpr %))
@@ -1225,10 +1225,11 @@
     (eat-token ?ps \))
     (eat-token ?ps \()
     (parse ::expr ?ps)                  ; any expr. 
-    (store ?ps :expr)    
+    (store ?ps :body)    
     (eat-token ?ps \))
     (assoc ?ps :result
            (->MznGenCallExpr
             (recall ?ps :gen-call-op)
-            (recall ?ps :comp-tail)
-            (recall ?ps :expr)))))
+            (-> (recall ?ps :comp-tail) :generators)
+            (-> (recall ?ps :comp-tail) :where-expr)
+            (recall ?ps :body)))))

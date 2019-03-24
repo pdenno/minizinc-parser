@@ -42,7 +42,7 @@
       (is (parse-ok? ::mznp/array-comp            "[ s[i] | i in 1..n]"))
       (is (parse-ok? ::mznp/expr                  "[ s[i] | i in 1..n]"))
       (is (not (parse-ok? ::mznp/array-literal-2d "[|10, 13, |22, 31, |14, 9, 18|]"))) ; sublist must be equal size
-      (is (parse-ok? ::mznp/if-then-else-expr     "if foo then bar else true endif"))
+      (is (parse-ok? ::mznp/if-then-else-expr     "if foo then bar else baz endif"))
 
       (is (parse-ok? ::mznp/annotations           ":: set_search(foo)"))
       
@@ -66,7 +66,8 @@
     (is (-> (parse-file "data/simple-prod-planning.mzn") :error not))
     (is (-> (parse-file "data/social-golfers.mzn") :error not))
     (is (-> (parse-file "data/stable-marriage.mzn") :error not))
-    (is (-> (parse-file "data/sudoku.mzn") :error not))))
+    (is (-> (parse-file "data/sudoku.mzn") :error not))
+    (is (-> (parse-file "data/penalty.mzn") :error not))))
 
 ;;; POD Would be more useful to identify where an element is in any two of them. 
 #_(deftest builtins-partition 
