@@ -345,38 +345,38 @@
                                            :prec (-> op-precedence-tbl sym :val)})))
            (update :operands #(conj % nil)))
        (update res :operands #(conj % v))))
-   {:operators [] :operands []}
+   {:operators [] :operands [] :mods #{}}
    (zipmap (range (count bvec)) bvec)))
 
 (defn info2bvec
   "Compute a new bvec from an info object after some order-bin-ops processing."
-  
-  
+  [info]
+  info) ; NYI
 
 (defn order-bin-ops
   "Process a :bin-ops vector into sexps conforming to precedence rules. Crazy!"
   [bvec]
-  (let [mods (atom [])]
+  (let [mods (atom #{})]
     (reduce (fn [bvec pval]
               (reset! mods #{})
               (as-> bvec ?x
                 (bvec2info ?x)
                 (update ?x :operators
                         (fn [ops]
-                          (map #(if (= pval (:prec %))
-                                  (do (swap! mod #(conj % pos))
-                                      `(~(:op %)
-                                        (nth (:operands info) (dec (:pos %)))
-                                        (nth (:operands info) (inc (:pos %))))
-                                      %)
-                                  ops))))
-                (update ?x :operands
-                        #(reduce (fn [operands pos]
-                                   
-                           
-                info2bvec))
-          bvec
-          [300]))
+                          (doall
+                           (map (fn [omap]
+                                  (if (= pval (:prec omap))
+                                    (let [pos (:pos omap)]
+                                      (swap! mods (fn [mods] (conj mods pos))) ; track what position changed.
+                                      (list (:op omap)
+                                            (nth (:operands ?x) (dec pos))
+                                            (nth (:operands ?x) (inc pos))))
+                                    omap))
+                                ops))))
+                (assoc ?x :mods @mods)
+                (info2bvec ?x)))
+            bvec
+            [300])))
             
                         
                       
