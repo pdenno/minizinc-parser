@@ -96,7 +96,6 @@
             (= :MznExprBinopTail (-> ?m :tail :type))
             (into {:type :bin-op :lhs atom } (-> ?m :tail rewrite)), ; into: get :lhs? on the lhs
             :else (throw (ex-info "Some other tail" {:tail (:tail ?m)})))
-      (reset! diag ?m)
       (cond-> ?m ; <================== ?m (sum [[j Jobs]] (if {:type :bin-op-primary, :lhs (pdenno.mznp.sexp/mzn-array-access LineOfJob j), :op ==, :rhs lin} (pdenno.mznp.sexp/mzn-array-access WorkersOnJob j w1) 0))
         (and primary? (map? ?m)) (assoc :type :bin-op-primary))
       (rewrite ?m)))) ; This fixes precedence (needs works; see NYI test case)
@@ -134,7 +133,6 @@
         (symbol c))))
 
 (defrewrite :char [c]
-  (reset! diag {:c c})
   (let [sc (safe2symbol c)]
     (if (contains? mzn2dsl-map sc)
       (mzn2dsl-map sc)
@@ -327,56 +325,102 @@
         :else
         exp)) ; this is the 'recursion cutoff' condition
 
-(defn reduce-bin-ops-str [str]
-  "Convenience function for testing reduce-bin-ops."
-  (-> (test-rewrite ::mznp/expr str :simplify? true)
-      reduce-bin-ops))
-
 (defn bvec2info
   "Using the bin-op-vec (at any level of processing), create a map containing information about it."
   [bvec]
-  (reduce-kv
-   (fn [res k v]
+  (reduce
+   (fn [res [k v]]
      (if (odd? k)
        (-> res
-           (update :operators  #(let [sym (safe2symbol v)]
-                                  (conj % {:pos k
-                                           :op sym
-                                           :prec (-> op-precedence-tbl sym :val)})))
-           (update :operands #(conj % nil)))
-       (update res :operands #(conj % v))))
-   {:operators [] :operands [] :mods #{}}
-   (zipmap (range (count bvec)) bvec)))
+           (update :operators #(let [sym (safe2symbol v)]
+                                 (conj % {:pos k
+                                          :op sym
+                                          :prec (-> op-precedence-tbl sym :val)})))
+           (update :args #(conj % :$op$)))
+       (update res :args #(conj % v))))
+   {:operators [] :args []}
+   (map #(vector %1 %2) (range (count bvec)) bvec)))
 
-(defn info2bvec
-  "Compute a new bvec from an info object after some order-bin-ops processing."
-  [info]
-  info) ; NYI
+(defn update-op-pos [info]
+  "Update the :pos values in operators according to new shortened :operands."
+  (let [args (:args info)
+        replace-pos (reduce (fn [positions [idx v]]
+                              (if (= v :$op$)
+                                (conj positions idx)
+                                positions))
+                            []
+                            (map #(vector %1 %2) (-> args count range) args))]
+    (assoc info
+           :operators
+           (loop [operators (:operators info)
+                  result []
+                  positions replace-pos]
+             (let [operator (first operators)
+                   is-op? (contains? operator :op)]
+               (if (empty? operators)
+                 result
+                 (recur
+                  (rest operators)
+                  (if is-op?
+                    (conj result (assoc operator :pos (first positions)))
+                    (conj result nil)) ; placeholder needed by calling function.
+                  (if is-op? (rest positions) positions))))))))
+
+(defn update-args
+  "Remove used operands and replace with sexps." 
+  [info mod-pos]
+  (update info
+            :args
+            (fn [args]
+              (reduce (fn [o pos]
+                        (cond (or (= mod-pos (dec pos)) (= mod-pos (inc pos)))  ;; eliminated
+                              o,
+                              (= mod-pos pos)
+                              (conj o (some #(when (= (:pos %) pos) (:form %))  ;; composed sexp
+                                            (:operators info))),
+                              :else
+                              (conj o (nth args pos))))                         ;; no change
+                      []
+                      (range (count args))))))
 
 (defn order-bin-ops
-  "Process a :bin-ops vector into sexps conforming to precedence rules. Crazy!"
+  "Process a :bin-ops vector into sexps conforming to precedence rules."
   [bvec]
-  (let [mods (atom #{})]
-    (reduce (fn [bvec pval]
-              (reset! mods #{})
-              (as-> bvec ?x
-                (bvec2info ?x)
-                (update ?x :operators
-                        (fn [ops]
-                          (doall
-                           (map (fn [omap]
-                                  (if (= pval (:prec omap))
-                                    (let [pos (:pos omap)]
-                                      (swap! mods (fn [mods] (conj mods pos))) ; track what position changed.
-                                      (list (:op omap)
-                                            (nth (:operands ?x) (dec pos))
-                                            (nth (:operands ?x) (inc pos))))
-                                    omap))
-                                ops))))
-                (assoc ?x :mods @mods)
-                (info2bvec ?x)))
-            bvec
-            [300])))
+  (as-> (bvec2info bvec) ?info
+    (reduce (fn [info pval]
+              (loop [index (-> info :operators count range) 
+                     info info]
+                (let [ops (:operators info)]
+                  (if (empty? index)
+                    info
+                    (let [ix (first index) ; Picks out an operator (might not be modified; see pval). 
+                          omap (nth ops ix)
+                          pos  (:pos omap)
+                          prec (:prec omap)
+                          omap (as-> omap ?omap
+                                 (if (= pval prec)
+                                   {:pos pos
+                                    :form (list (:op ?omap)
+                                                (nth (:args info) (dec pos))
+                                                (nth (:args info) (inc pos)))}
+                                   ?omap))]
+                      (recur (rest index)
+                             (-> info
+                                 (assoc :operators (into (conj (subvec ops 0 ix) omap)
+                                                         (subvec ops (inc ix))))
+                                 (cond-> (= pval prec) (update-args pos)
+                                         (= pval prec) update-op-pos))))))))
+            ?info
+            (-> (map :prec (:operators ?info)) distinct sort))
+    (-> ?info :args first)))
+      
+(defn reduce-bin-ops-str [str]
+  "Convenience function for testing reduce-bin-ops."
+  (as-> (test-rewrite ::mznp/expr str :simplify? true) ?x
+    (reduce-bin-ops ?x)
+    (order-bin-ops (:bin-ops ?x))))
+
+
             
                         
                       
