@@ -7,6 +7,8 @@
             [pdenno.mznp.utils :as util]
             [pdenno.mznp.mznp :as mznp]))
 
+;;; The functions that end in a * (rewrite* and reduce-bin-ops*) are 'toplevel' and good for testing. 
+
 (def debugging? (atom false))
 (def diag (atom {}))
 (def tags (atom []))
@@ -28,7 +30,7 @@
      (do (when @debugging? (cl-format *out* "~A<-- ~A returns ~S~%" (util/nspaces (count @tags)) ~tag result#))
          result#))))
 
-(declare map-simplify remove-nils rewrite precedence op-precedence mzn2dsl-map)
+(declare map-simplify remove-nils rewrite precedence op-precedence mzn2dsl-map safe2symbol)
 
 (defn sexp-simplify
   "Toplevel function to transform the structure produced by the parser to something useful."
@@ -73,7 +75,6 @@
 ;;;----------------------- Rewriting ---------------------------------------
 (defrewrite :MznModel [m]
   (reduce (fn [res item]
-            (cl-format *out* "~%**************item = ~A" item)
             (let [type (:type item)]
               (cond (= :MznConstraint type)
                     (update res :constraints conj (-> item :expr rewrite))
@@ -89,16 +90,11 @@
   (-> m :expr rewrite))
 
 (defrewrite :MznExpr [m]
-  (let [atom (-> m :atom rewrite)
-        primary? (:primary? m)] ; Need to grab it now.
-    (as-> m ?m
-      (cond (not (:tail ?m)) atom,
-            (= :MznExprBinopTail (-> ?m :tail :type))
-            (into {:type :bin-op :lhs atom } (-> ?m :tail rewrite)), ; into: get :lhs? on the lhs
-            :else (throw (ex-info "Some other tail" {:tail (:tail ?m)})))
-      (cond-> ?m ; <================== ?m (sum [[j Jobs]] (if {:type :bin-op-primary, :lhs (pdenno.mznp.sexp/mzn-array-access LineOfJob j), :op ==, :rhs lin} (pdenno.mznp.sexp/mzn-array-access WorkersOnJob j w1) 0))
-        (and primary? (map? ?m)) (assoc :type :bin-op-primary))
-      (rewrite ?m)))) ; This fixes precedence (needs works; see NYI test case)
+  (as-> m ?m
+    (cond (not (:tail ?m)) (-> m :atom rewrite)
+          (= :MznExprBinopTail (-> ?m :tail :type))
+          (-> ?m reduce-bin-ops :bin-ops order-bin-ops)
+          :else (throw (ex-info "Some other tail" {:tail (:tail ?m)})))))
 
 (defrewrite :MznIfExpr [m]
   `(if ~(-> m :condition rewrite)
@@ -124,14 +120,6 @@
 (defrewrite :MznId [m]
   (-> m :name symbol))
 
-;;; POD this might be unnecessary. See remarks at op-precedence-table. 
-(defn safe2symbol
-  "Some characters don't convert!"
-  [c]
-  (let [these-fail {\< '<, \> '>, \= 'assign, \+ '+, \- '-, \* '* \/ '/}]
-    (or (get these-fail c)
-        (symbol c))))
-
 (defrewrite :char [c]
   (let [sc (safe2symbol c)]
     (if (contains? mzn2dsl-map sc)
@@ -155,10 +143,6 @@
         body (-> m :body rewrite)]
     `(~op ~gens :where ~(or where true) ~body)))
 
-;;; This is not nice; I'm going to try to eliminate it. 
-#_(defrewrite :MznCompTail [m]
-  (mapv rewrite (:generators m)))
-
 (defrewrite :MznGenerator [m]
   (conj (mapv rewrite (:ids m))
         (rewrite (:expr m))))
@@ -166,34 +150,9 @@
 (defrewrite :MznAssignment [m]
   [(-> m :lhs rewrite keyword) (-> m :rhs rewrite)])
 
-;;; (test-rewrite ::mznp/expr "1*2-3") => {:lhs 1, :op *, :rhs? {:lhs 2, :op -, :rhs? 3}} *Not as intended!*
-;;; (def foo   {:lhs 1,                      :op '*, :rhs {:lhs 2, :op '-, :rhs 3}})
-;;; (def defoo {:lhs {:lhs 1 :op '* :rhs 2}, :op '-, :rhs 3})
-;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * binds tighter than +.
-;;; This fixes precedence, but as discussed 2019-02-16, it only does it for 3 expressions. 
-#_(defrewrite :bin-op [exp] ; <====================== caller should make :bin-op-seq This would handle it. 
-  (let [op1 (:op exp)
-        op2 (-> exp :rhs :op)]
-    (as-> exp ?exp
-      (if (and op2 (< (precedence op1) (precedence op2)))
-        (let [rhs-save (:rhs ?exp)]
-          (println "?exp =" ?exp)
-          (-> ?exp
-              (assoc :lhs {:lhs (:lhs ?exp) :op (:op ?exp) :rhs (-> ?exp :rhs :lhs)})
-              (assoc :op (:op rhs-save))
-              (assoc :rhs (:rhs rhs-save))
-              (update :lhs rewrite)
-              (update :rhs rewrite)))
-        ?exp) ; March: Why :type in next?
-      (assoc ?exp :type `(~(:op ?exp) ~(:lhs ?exp) ~(:rhs ?exp)))
-      (rewrite ?exp))))
-
-(defrewrite :bin-op [exp] ; <====================== caller should make :bin-op-seq This would handle it.
+#_(defrewrite :bin-op [exp] ; <====================== caller should make :bin-op-seq This would handle it.
   `(~(:op exp) ~(-> exp :lhs rewrite) ~(-> exp :rhs rewrite)))
  
-
-;;; POD I think something here needs work: I return, for example, \>, not '>.
-;;; 2019-03-23 Can't user characters; mzn2dsl-map complains. 
 ;;; MiniZinc Specification, section 7.2.
 ;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * (300) binds tighter than + (400).
 (def op-precedence-tbl ; lower :val means binds tighter. 
@@ -227,6 +186,13 @@
    :++-op     {:assoc :right :val 200}
    :<ident>   {:assoc :left  :val 100}})
 
+(defn safe2symbol
+  "Some characters don't convert!"
+  [c]
+  (let [these-fail {\< '<, \> '>, \= 'assign, \+ '+, \- '-, \* '* \/ '/}]
+    (or (get these-fail c)
+        (symbol c))))
+
 ;;; The DSL operators are just the Mzn keywords things as symbols. (This will probably change; ..-op yuk!)
 (def mzn2dsl-map 
   (zipmap (keys op-precedence-table)
@@ -237,15 +203,7 @@
     (-> op op-precedence-table :val)
     100))
 
-;;; (ops-with-precedence 300) ==> (:mod * :div / :intersect)
-(def ops-with-precedence
-  "Holds vectors of operators that share a precedence value (the index of the map)." 
-  (reduce-kv (fn [m k v] (assoc m k (map first v)))
-             {}
-             (group-by second (map #(let [[k v] %] [k (:val v)])
-                                   op-precedence-table))))
-
-(defn test-rewrite
+(defn rewrite*
   "mzn/parse-string and sexp-simplify, but with controls for partial evaluation, debugging etc.
    With no keys it does all steps without debug output."
   [tag str & {:keys [none? simplify? rewrite? file? debug? debug-mznp?] :as opts}]
@@ -265,43 +223,19 @@
       (reset!      debugging?      db?)
       result)))
 
-;;;--- This would be part of a reconceptualization of fix-precedence See notes 2019-02-16. 
-(defn flatten-binop
-  ([exp] (flatten-binop exp []))
-  ([exp res]
-   (cond (= (:type exp) :bin-op)
-         (-> res 
-             (into [(flatten-binop (:lhs exp))])
-             (conj (:op exp))
-             (into [(flatten-binop (:rhs exp))])),
-         (= (:type exp) :bin-op-primary)
-         (conj res
-               (vector (flatten-binop (:lhs exp))
-                       (:op exp)
-                       (flatten-binop (:rhs exp)))),
-         :else exp)))
-
 ;;;============================== Reduce-bin-ops ===================================
+(defn primary? [exp] (-> exp :atom :head :primary?))
+
 (defn simplify-primary 
   "Primary (which is syntactically '(' <expr> ')') isn't identical with expr; this makes it so."
   [exp]
-  (let [front-part (-> exp 
-                       :atom
-                       :head
-                       (dissoc :primary?))]
-    (if (:tail exp)
-      {:type :MznExpr
-       :atom front-part
-       :tail (-> exp :tail (dissoc :primary?))}
-      exp)))
-
-(defn primary? [exp] (-> exp :atom :head :primary?))
+  (update-in exp [:atom :head] #(dissoc % :primary?)))
 
 (defn reduce-bin-ops
-  "Replace nested binary operations/operands with a flat vector [operand, op, operand...] in :bin-ops"
+  "Replace nested binary operations/operands with a flat vector (bvec) [operand, op, operand...] in :bin-ops"
   [exp]
   (cond (primary? exp) ; Thing has parentheses around it. 
-        (-> exp simplify-primary reduce-bin-ops vector),
+        (-> exp simplify-primary reduce-bin-ops),
         (and (= (:type exp) :MznExpr) (:tail exp))
         (let [tail    (-> exp :tail :expr reduce-bin-ops)
               bin-ops (-> (or (:bin-ops exp) []) ; Reduce the head and op... 
@@ -386,42 +320,44 @@
 (defn order-bin-ops
   "Process a :bin-ops vector into sexps conforming to precedence rules."
   [bvec]
-  (as-> (bvec2info bvec) ?info
-    (reduce (fn [info pval]
-              (loop [index (-> info :operators count range) 
-                     info info]
-                (let [ops (:operators info)]
-                  (if (empty? index)
-                    info
-                    (let [ix (first index) ; Picks out an operator (might not be modified; see pval). 
-                          omap (nth ops ix)
-                          pos  (:pos omap)
-                          prec (:prec omap)
-                          omap (as-> omap ?omap
-                                 (if (= pval prec)
-                                   {:pos pos
-                                    :form (list (:op ?omap)
-                                                (nth (:args info) (dec pos))
-                                                (nth (:args info) (inc pos)))}
-                                   ?omap))]
-                      (recur (rest index)
-                             (-> info
-                                 (assoc :operators (into (conj (subvec ops 0 ix) omap)
-                                                         (subvec ops (inc ix))))
-                                 (cond-> (= pval prec) (update-args pos)
-                                         (= pval prec) update-op-pos))))))))
-            ?info
-            (-> (map :prec (:operators ?info)) distinct sort))
-    (-> ?info :args first)))
-      
-(defn reduce-bin-ops-str [str]
-  "Convenience function for testing reduce-bin-ops."
-  (as-> (test-rewrite ::mznp/expr str :simplify? true) ?x
-    (reduce-bin-ops ?x)
-    (order-bin-ops (:bin-ops ?x))))
+  (let [bvec (mapv #(if (:bin-ops %) (-> % :bin-ops order-bin-ops) %) bvec)] ; Recursively process primaries to args. 
+    (as-> (bvec2info bvec) ?info
+      (reduce (fn [info pval]
+                (loop [index (-> info :operators count range) 
+                       info info]
+                  (let [ops (:operators info)]
+                    (if (empty? index)
+                      info
+                      (let [ix (first index) ; Picks out an operator (might not be modified; see pval). 
+                            omap (nth ops ix)
+                            pos  (:pos omap)
+                            prec (:prec omap)
+                            omap (as-> omap ?omap
+                                   (if (= pval prec)
+                                     {:pos pos
+                                      :form (list (:op ?omap)
+                                                  (nth (:args info) (dec pos))
+                                                  (nth (:args info) (inc pos)))}
+                                     ?omap))]
+                        (recur (rest index)
+                               (-> info
+                                   (assoc :operators (into (conj (subvec ops 0 ix) omap)
+                                                           (subvec ops (inc ix))))
+                                   (cond-> (= pval prec) (update-args pos)
+                                           (= pval prec) update-op-pos))))))))
+              ?info
+              (-> (map :prec (:operators ?info)) distinct sort))
+      (-> ?info :args first))))
+
+;;; POD TODO: Remove excessive and, or, + 
+(defn reduce-bin-ops* [str & {:keys [rewrite? reduce? file?] :as opts}]
+  "Convenience function for testing reduce-bin-ops and order-bin-ops."
+  (let [all? (not (or (contains? opts :rewrite?)
+                      (contains? opts :reduce?)))
+        mznp-struct (rewrite* ::mznp/expr (if file? (slurp str) str) :simplify? true)]
+    (cond-> mznp-struct
+      (or all? reduce?) reduce-bin-ops
+      all? :bin-ops
+      all? order-bin-ops)))
 
 
-            
-                        
-                      
-    
