@@ -108,13 +108,22 @@
    :base-type (-> m :base-type rewrite)})
 
 (defrewrite :MznArrayType [m]
-  {:datatype :mzn-array
-   :index (mapv rewrite (:index m))
-   :base-type (-> m :base-type rewrite)})
+  (let [idx (mapv rewrite (:index m))]
+    {:datatype (if (== 2 (count idx)) :mzn-2d-array :mzn-array)
+     :index idx
+     :base-type (-> m :base-type rewrite)}))
+
+(defrewrite :MznIdDef [m]
+  (if (-> m :id-type :expr keyword?)
+    {:datatype (-> m :id-type rewrite)}
+    (-> m :id-type rewrite)))
 
 ;;;-------------------- Literals ---------------------------------
 (defrewrite :MznArray [m]
   (mapv rewrite (:elems m)))
+
+(defrewrite :Mzn2dArray [m]
+  (mapv #(mapv rewrite %) (:sublists m)))
 
 
 ;;;-------------------- Expressions ---------------------------
@@ -178,9 +187,6 @@
 
 (defrewrite :MznAssignment [m]
   [(-> m :lhs rewrite keyword) (-> m :rhs rewrite)])
-
-(defrewrite :MznIdDef [m]
-  (-> m :id-type rewrite))
 
 (defrewrite :id-type [m]
   (rewrite m))

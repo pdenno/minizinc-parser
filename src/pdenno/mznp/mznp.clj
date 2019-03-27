@@ -659,15 +659,12 @@
       (as-> ?ps ?ps1
           (eat-token ?ps1)
           (parse ::expr ?ps1)
-          (assoc ?ps1 :result (->MznOpItemTail (recall ?ps1 :id)
-                                               (recall ?ps1 :params)
-                                               (:result ?ps1)
-                                               (recall ?ps1 :anns))))
-      (assoc ?ps :result (->MznOpItemTail
-                          (recall ?ps :id)
-                          (recall ?ps :params)
-                          nil
-                          (recall ?ps :anns))))))
+          (store ?ps1 :expr))
+      (store ?ps :expr nil))
+    (assoc ?ps :result (->MznOpItemTail (recall ?ps :id)
+                                        (recall ?ps :params)
+                                        (recall ?ps :expr)
+                                        (recall ?ps :anns)))))
 
 ;;; Example: function var T: enum_next(set of T: X, var T: x);
 ;;; The whole thing is optional, but functions start with "function".

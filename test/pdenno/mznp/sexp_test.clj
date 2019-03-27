@@ -45,7 +45,7 @@
   (testing "Rewriting variable declarations"
     (debug-off
      (is (= (rewrite* ::mznp/var-decl-item "int: n = 3")
-            '{:name "n", :vartype :int, :init 3}))
+            '{:name "n", :vartype {:datatype :int}, :init 3}))
      (is (= (rewrite* ::mznp/var-decl-item "set of int: Lines = 1..numLines")
             '{:name "Lines",
               :vartype {:datatype :mzn-set, :base-type :int},
@@ -57,7 +57,7 @@
      (is (= (rewrite* ::mznp/var-decl-item "array [Jobs,Weeks] of var 0..workforce_size: WorkersOnJob")
             '{:name "WorkersOnJob",
               :vartype
-              {:datatype :mzn-array,
+              {:datatype :mzn-2d-array,
                :index [Jobs Weeks],
                :base-type (range-op 0 workforce_size)},
               :init nil,
@@ -110,4 +110,8 @@
                              (aacc-op WorkersOnJob j w2)
                              0)))))))))
 
-;;; (rewrite* ::mznp/model "data/penalty.mzn" :file? true)
+(deftest whole-models
+  (testing "Rewriting of whole models"
+    (debug-off
+     (is (= (rewrite* ::mznp/model "data/assignment.mzn" :file? true)
+            (read-string (slurp "data/output/assignment.clj")))))))
