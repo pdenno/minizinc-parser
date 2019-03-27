@@ -33,7 +33,7 @@
 
 ;;; ============ Tokenizer ===============================================================
 ;;; POD Could add to this from library...
-(def ^:private mzn-keywords
+(def  mzn-keywords
   #{"ann", "annotation", "any", "array", "bool", "case", "constraint", "diff", "div", "else",
     "elseif", "endif", "enum", "false", "float", "function", "if", "in", "include", "int",
     "intersect", "let", "list", "maximize", "minimize", "mod", "not", "of", "op", "opt", "output", ; website shows "opt"
@@ -58,7 +58,7 @@
         c0  (nth st 0)
         c1  (and (> len 1) (nth st 1))
         c2  (and (> len 2) (nth st 2))]
-    (when-let [result (cond (and (= c0 \.) (= c1 \.)) {:raw ".." :tkn :..-op}
+    (when-let [result (cond (and (= c0 \.) (= c1 \.)) {:raw ".." :tkn :range-op}
                             (and (= c0 \-) (= c1 \>)) {:raw "->" :tkn :->-op}
                             (and (= c0 \<) (= c1 \-)) {:raw "<-" :tkn :<--op}
                             (and (= c0 \\) (= c1 \/)) {:raw "\\/" :tkn :or-op}
@@ -377,7 +377,7 @@
 ;;;                       subset | superset | union | diff | symdiff | .. | intersect| ++ | <builtin-num-bin-op>
 (def builtin-bin-op
   (into #{:<->-op  :->-op  :<-op  :or-op :xor-op :and-op \< \> :<= :>= :== \= :not= :in,
-          :subset, :superset, :union, :diff, :symdiff, :..-op,  :intersect, :++-op}
+          :subset, :superset, :union, :diff, :symdiff, :range-op,  :intersect, :++-op}
         builtin-num-bin-op))
 (defparse-auto :builtin-bin-op builtin-bin-op)
 
@@ -439,7 +439,7 @@
         (= \{ tkn)                                   ; 
         (#{:ann :opt} tkn)                           ; others
         (instance? MznTypeInstVar tkn)               ; base-ti-expr-tail ... <ti-variable-expr-tail>
-        (find-token (token-vec pstate) :..-op))))    ; base-ti-expr-tail ... <num-expr> ".."  <num-expr> 
+        (find-token (token-vec pstate) :range-op))))    ; base-ti-expr-tail ... <num-expr> ".."  <num-expr> 
       
 ;;; <item>::= <include-item> | <var-decl-item> | <assign-item> | <constraint-item> | <solve-item> |
 ;;;            <output-item> | <predicate-item> | <test-item> | <function-item> | <annotation-item>
@@ -538,9 +538,14 @@
                                    (:result ?ps)
                                    (recall ?ps :anns)))))
 
-(defrecord MznVarDecl [lhs rhs anns])
-(s/def ::var-decl-item
-  (s/keys :req-un [::lhs ::rhs ::anns]))
+(defn search-var?
+  "Search through a (potentially deep) var-decl-item.lhs looking for whether it is a var."
+  [x]
+  (cond (not (map? x)) nil
+        (:var? x) true
+        :else (some identity (map search-var? (vals x)))))
+
+(defrecord MznVarDecl [lhs rhs anns var?])
 
 ;;; <var-decl-item> ::= <ti-expr-and-id> <annotations> [ "=" <expr> ]
 (defparse ::var-decl-item
@@ -554,13 +559,12 @@
       (as-> ?ps ?ps1
           (eat-token ?ps1)
           (parse ::expr ?ps1)
-          (assoc ?ps1 :result (->MznVarDecl (recall ?ps1 :lhs)
-                                            (:result ?ps1)
-                                            (recall ?ps1 :anns))))
-      (assoc ?ps :result (->MznVarDecl
-                          (recall ?ps :lhs)
-                          nil
-                          (recall ?ps :anns))))))
+          (store ?ps1 :init))
+      (store ?ps :init nil))
+    (assoc ?ps :result (->MznVarDecl (recall ?ps :lhs)
+                                     (recall ?ps :init)
+                                     (recall ?ps :anns)
+                                     (-> (recall ?ps :lhs) search-var?)))))
 
 (defrecord MznOutputItem [expr])
 (s/def ::output-item #(instance? MznOutputItem %))
@@ -726,7 +730,7 @@
               (assoc-in ?ps [:result :optional?] true)),
           (= tkn \{)                        ; "{" <expr>, ... "}" 
           (parse ::set-literal pstate),
-          (find-token (token-vec pstate) :..-op)        ; <num-expr> ".."  <num-expr> ; call it a range expression
+          (find-token (token-vec pstate) :range-op)        ; <num-expr> ".."  <num-expr> ; call it a range expression
           (parse ::num-expr pstate)
           :else
           (assoc pstate :error {:expected :base-ti-expr-tail :tkn (:tkn pstate)

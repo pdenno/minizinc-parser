@@ -14,8 +14,11 @@
 (def tags (atom []))
 (def locals (atom [{}]))
 
-(defmacro mzn-array-access [& body]
-  ~@body) ; POD NYI
+(defmacro aacc-op [& body]
+  `(aacc-op ~@body)) ; NYI
+
+(defmacro range-op [& body]
+  `(range-op ~@body))
 
 ;;; Similar to mznp/defparse except that it serves no role except to make debugging nicer.
 ;;; You could eliminate this by global replace of "defrewrite" --> "defmethod rewrite" and removing defn rewrite. 
@@ -32,13 +35,6 @@
 
 (declare map-simplify remove-nils rewrite precedence op-precedence mzn2dsl-map safe2symbol)
 (declare order-bin-ops reduce-bin-ops)
-
-(defn sexp-simplify
-  "Toplevel function to transform the structure produced by the parser to something useful."
-  [m]
-  (-> m
-      map-simplify
-      rewrite))
 
 (defn map-simplify
   "Recursively traverse the map structures changing records to maps, 
@@ -74,22 +70,54 @@
     (rewrite-meth tag obj keys)))
 
 ;;;----------------------- Rewriting ---------------------------------------
+;;;----------------------- Top-level ---------------------------------------
 (defrewrite :MznModel [m]
   (reduce (fn [res item]
             (let [type (:type item)]
-              (cond (= :MznConstraint type)
-                    (update res :constraints conj (-> item :expr rewrite))
-                    (#{:MznAssignment} type)
-                    (let [[k v] (rewrite item)]
-                      (assoc-in res [:assignments k] v)))))
-          {:constraints []
-           :assignments {}}
+              (cond (= type :MznConstraint)
+                    (update res :constraints conj (rewrite item))
+                    (= type :MznVarDecl)
+                    (let [vd (rewrite item)]
+                      (assoc-in res [:var-decls (:name vd)] vd))
+                    (= type :MznSolve)
+                    (assoc res :solve (rewrite item))
+                    :else res)))
+          {:constraints [] :var-decls {}}
           (:items m)))
 
-;;; This needed only for testing constraints; see above for typical usage.
 (defrewrite :MznConstraint [m]
   (-> m :expr rewrite))
 
+(defrewrite :MznVarDecl [m]
+  (let [res {:name (-> m :lhs :id rewrite str)
+             :vartype (-> m :lhs rewrite)
+             :init (-> m :rhs rewrite)}]
+    (cond-> res
+      (:var? m) (assoc :var? true))))
+
+(defrewrite :MznSolve [m]
+  {:action (:action m)
+   :expr (-> m :expr rewrite)})
+
+;;;-------------------- Types ---------------------------------
+(defrewrite :MznTypeInstExpr [m]
+  (-> m :expr rewrite))
+
+(defrewrite :MznSetType [m]
+  {:datatype :mzn-set
+   :base-type (-> m :base-type rewrite)})
+
+(defrewrite :MznArrayType [m]
+  {:datatype :mzn-array
+   :index (mapv rewrite (:index m))
+   :base-type (-> m :base-type rewrite)})
+
+;;;-------------------- Literals ---------------------------------
+(defrewrite :MznArray [m]
+  (mapv rewrite (:elems m)))
+
+
+;;;-------------------- Expressions ---------------------------
 (defrewrite :MznExpr [m]
   (as-> m ?m
     (cond (not (:tail ?m)) (-> m :atom rewrite)
@@ -108,12 +136,9 @@
 
 (defrewrite :MznExprAtom [m]
   (if (contains? m :tail)
-    `(~'mzn-array-access ~(-> m :head rewrite)
+    `(~'aacc-op ~(-> m :head rewrite)
                        ~@(-> m :tail rewrite))
     (-> m :head rewrite)))
-
-(defrewrite :MznArray [m]
-  (mapv rewrite (:elems m)))
 
 (defrewrite :MznArrayAccess [m]
   (mapv rewrite (:exprs m)))
@@ -127,10 +152,13 @@
       (mzn2dsl-map sc)
       (throw (ex-info "Unknown syntactic character" {:char c})))))
 
+#_(def mzn-keyword? (set (map keyword mznp/mzn-keywords)))
+
 (defrewrite :keyword [k]
-  (if (contains? mzn2dsl-map k)
-    (mzn2dsl-map k)
-    (throw (ex-info "Unknown keyword" {:key k}))))
+  (cond (contains? mzn2dsl-map k) (mzn2dsl-map k)     ; these are operators
+        #_(mzn-keyword k) #_k
+        (#{:int :float} k) k                          ; there are mzn keywords (POD do I really only want :int and :float
+        :else (throw (ex-info "Unknown keyword" {:key k}))))
 
 (defrewrite :default [m]
   m)
@@ -142,7 +170,7 @@
         gens (mapv rewrite (-> m :generators))
         where (-> m :where rewrite)
         body (-> m :body rewrite)]
-    `(~op ~gens :where ~(or where true) ~body)))
+    `(~op ~gens  ~(or where true) ~body)))
 
 (defrewrite :MznGenerator [m]
   (conj (mapv rewrite (:ids m))
@@ -150,6 +178,15 @@
 
 (defrewrite :MznAssignment [m]
   [(-> m :lhs rewrite keyword) (-> m :rhs rewrite)])
+
+(defrewrite :MznIdDef [m]
+  (-> m :id-type rewrite))
+
+(defrewrite :id-type [m]
+  (rewrite m))
+
+;;;============================== Precedence ordering ===================================================
+;;;============================== form-bin-ops* = (-> reduce-bin-ops order-bin-ops) =====================
 
 ;;; MiniZinc Specification, section 7.2.
 ;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * (300) binds tighter than + (400).
@@ -173,7 +210,7 @@
    :union     {:assoc :left :val 600}
    :diff      {:assoc :left :val 600}
    :symdiff   {:assoc :left :val 600}
-   :..-op     {:assoc :none :val 500}
+   :range-op  {:assoc :none :val 500}
    '+         {:assoc :left :val 400}
    '-         {:assoc :left :val 400}
    '*         {:assoc :left :val 300}
@@ -185,7 +222,7 @@
    :<ident>   {:assoc :left  :val 100}})
 
 (defn safe2symbol
-  "Some characters don't convert!"
+  "Some characters don't convert to symbols!"
   [c]
   (let [these-fail {\< '<, \> '>, \= 'assign, \+ '+, \- '-, \* '* \/ '/}]
     (if (keyword? c)
@@ -193,7 +230,7 @@
       (or (get these-fail c)
           (symbol c)))))
 
-;;; The DSL operators are just the Mzn keywords things as symbols. (This will probably change; ..-op yuk!)
+;;; The DSL operators are just the Mzn keywords things as symbols. 
 (def mzn2dsl-map 
   (zipmap (keys op-precedence-tbl)
           (map util/keysym (keys op-precedence-tbl))))
@@ -204,7 +241,7 @@
     100))
 
 (defn rewrite*
-  "mzn/parse-string and sexp-simplify, but with controls for partial evaluation, debugging etc.
+  "mzn/parse-string, simplify, and rewrite, but with controls for partial evaluation, debugging etc.
    With no keys it does all steps without debug output."
   [tag str & {:keys [none? simplify? rewrite? file? debug? debug-mznp?] :as opts}]
   (let [all? (not (or (contains? opts :simplify?)
@@ -222,9 +259,6 @@
       (reset! mznp/debugging? mznp-db?)
       (reset!      debugging?      db?)
       result)))
-
-;;;============================== Precedence ordering ===================================================
-;;;============================== form-bin-ops* = (-> reduce-bin-ops order-bin-ops) ======================
 
 ;;; In the case of a + b   the Expr      has a :tail
 ;;; In the case of a[i]    the Expr.atom has a :tail
@@ -322,7 +356,7 @@
                       (range (count args))))))
 
 (defn order-bin-ops
-  "Process a :bin-ops vector into sexps conforming to precedence rules."
+  "Process a :bin-ops vector into sexps conforming to precedence rules. Crazy!"
   [bvec]
   (let [bvec (mapv #(if (:bin-ops %) (-> % :bin-ops order-bin-ops) %) bvec) ; Recursively process primaries to args.
         info (bvec2info bvec)]
@@ -341,7 +375,7 @@
                             omap (as-> omap ?omap
                                    (if (= pval prec)
                                      {:pos pos
-                                      :form (list (:op ?omap)
+                                      :form (list (-> ?omap :op symbol)
                                                   (nth (:args info) (dec pos))
                                                   (nth (:args info) (inc pos)))}
                                      ?omap))]
