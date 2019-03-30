@@ -36,31 +36,31 @@
       (is (= (form-bin-ops* "3 * (1 + 2)") '(* 3 (+ 1 2))))
       (is (= (form-bin-ops* "(1 + 2) * 3") '(* (+ 1 2) 3)))
       ;;; Some array references
-      (is (= (form-bin-ops*  "a * b[i]")    '(* a (aacc-op b i))))
-      (is (= (form-bin-ops*  "a * b[i]")    '(* a (aacc-op b i))))
-      (is (= (form-bin-ops*  "a[i] * b[i]") '(* (aacc-op a i) (aacc-op b i))))
-      (is (= (form-bin-ops*  "a[i] * b")    '(* (aacc-op a i) b))))))
+      (is (= (form-bin-ops*  "a * b[i]")    '(* a (mznf/aref b i))))
+      (is (= (form-bin-ops*  "a * b[i]")    '(* a (mznf/aref b i))))
+      (is (= (form-bin-ops*  "a[i] * b[i]") '(* (mznf/aref a i) (mznf/aref b i))))
+      (is (= (form-bin-ops*  "a[i] * b")    '(* (mznf/aref a i) b))))))
 
 (deftest variable-decl-rewriting
   (testing "Rewriting variable declarations"
     (debug-off
      (is (= (rewrite* ::mznp/var-decl-item "int: n = 3")
-            '{:name "n", :vartype {:datatype :int}, :init 3}))
+            '{:name "n", :vartype {:datatype :int}, :value 3}))
      (is (= (rewrite* ::mznp/var-decl-item "set of int: Lines = 1..numLines")
             '{:name "Lines",
               :vartype {:datatype :mzn-set, :base-type :int},
-              :init (range-op 1 numLines)}))
+              :value (range-op 1 numLines)}))
      (is (= (rewrite* ::mznp/var-decl-item "array[Lines] of int: LinePenalty")
             '{:name "LinePenalty",
               :vartype {:datatype :mzn-array, :index [Lines], :base-type :int},
-              :init nil}))
+              :value nil}))
      (is (= (rewrite* ::mznp/var-decl-item "array [Jobs,Weeks] of var 0..workforce_size: WorkersOnJob")
             '{:name "WorkersOnJob",
               :vartype
               {:datatype :mzn-2d-array,
                :index [Jobs Weeks],
                :base-type (range-op 0 workforce_size)},
-              :init nil,
+              :value nil,
               :var? true})))))
 
 (deftest bigger-rewriting-tasks
@@ -70,7 +70,7 @@
              ::mznp/gen-call-expr
              "sum (j in Jobs) (if (LineOfJob[j] == lin) then WorkersOnJob[j,w1] else 0 endif)")
             '(sum  [[j Jobs]]   true
-                   (if  (== (aacc-op LineOfJob j) lin) (aacc-op WorkersOnJob j w1) 0))))
+                   (if  (== (mznf/aref LineOfJob j) lin) (mznf/aref WorkersOnJob j w1) 0))))
      
      (is (= (rewrite*
              ::mznp/constraint-item
@@ -86,8 +86,8 @@
                       (and-op (and-op (< w1 w2) 
                                             (forall [[j Jobs]]  true
                                                     (and-op
-                                                     (assign (aacc-op LineOfJob j) lin)
-                                                     (not= (aacc-op WorkersOnJob j w1) 0))))
+                                                     (assign (mznf/aref LineOfJob j) lin)
+                                                     (not= (mznf/aref WorkersOnJob j w1) 0))))
                                     (== w2
                                         (max
                                          [[j Jobs] [w (range-op (+ w1 1) numWeeksScheduled)]]
@@ -95,19 +95,19 @@
                                          true
                                          (if
                                              (and-op
-                                              (== (aacc-op LineOfJob j) lin)
-                                              (not= (aacc-op WorkersOnJob j w) 0))
+                                              (== (mznf/aref LineOfJob j) lin)
+                                              (not= (mznf/aref WorkersOnJob j w) 0))
                                            w
                                            0))))
                      (==
                       (sum  [[j Jobs]]  true
-                            (if  (== (aacc-op LineOfJob j) lin)
-                              (aacc-op WorkersOnJob j w1)
+                            (if  (== (mznf/aref LineOfJob j) lin)
+                              (mznf/aref WorkersOnJob j w1)
                               0))
                       (sum [[j Jobs]] true
                            (if
-                               (== (aacc-op LineOfJob j) lin)
-                             (aacc-op WorkersOnJob j w2)
+                               (== (mznf/aref LineOfJob j) lin)
+                             (mznf/aref WorkersOnJob j w2)
                              0)))))))))
 
 (deftest whole-models

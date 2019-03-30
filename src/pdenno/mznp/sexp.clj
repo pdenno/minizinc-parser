@@ -5,6 +5,7 @@
             [clojure.set    :as sets]
             [clojure.spec.alpha :as s]
             [pdenno.mznp.utils :as util]
+            [pdenno.mznp.mzn-fns :refer :all :as mznf]
             [pdenno.mznp.mznp :as mznp]))
 
 ;;; The functions that end in a * (rewrite* and form-bin-ops*) are 'toplevel' and good for testing. 
@@ -13,12 +14,6 @@
 (def diag (atom {}))
 (def tags (atom []))
 (def locals (atom [{}]))
-
-(defmacro aacc-op [& body]
-  `(aacc-op ~@body)) ; NYI
-
-(defmacro range-op [& body]
-  `(range-op ~@body))
 
 ;;; Similar to mznp/defparse except that it serves no role except to make debugging nicer.
 ;;; You could eliminate this by global replace of "defrewrite" --> "defmethod rewrite" and removing defn rewrite. 
@@ -91,7 +86,7 @@
 (defrewrite :MznVarDecl [m]
   (let [res {:name (-> m :lhs :id rewrite str)
              :vartype (-> m :lhs rewrite)
-             :init (-> m :rhs rewrite)}]
+             :value (-> m :rhs rewrite)}]
     (cond-> res
       (:var? m) (assoc :var? true))))
 
@@ -145,9 +140,15 @@
 
 (defrewrite :MznExprAtom [m]
   (if (contains? m :tail)
-    `(~'aacc-op ~(-> m :head rewrite)
+    `(~'mznf/aref ~(-> m :head rewrite)
                        ~@(-> m :tail rewrite))
     (-> m :head rewrite)))
+
+(defrewrite :MznCallExpr [m]
+   `(~(if (-> m :op mznp/builtin-constraint)
+        (symbol "mznf" (-> m :op name str))
+        (:op m))  ; NYI
+     ~@(map rewrite (:args m))))
 
 (defrewrite :MznArrayAccess [m]
   (mapv rewrite (:exprs m)))
@@ -172,8 +173,7 @@
 (defrewrite :default [m]
   m)
 
-;;;(forall [[j Jobs]]
-;;;  (<= (mznIdx endWeek j) (mznIdx WeeksTillDue j)))
+;;;(forall [[j Jobs]] (<= (mznIdx endWeek j) (mznIdx WeeksTillDue j)))
 (defrewrite :MznGenCallExpr [m]
   (let [op (-> m :gen-call-op util/keysym)
         gens (mapv rewrite (-> m :generators))
@@ -234,7 +234,7 @@
     (if (keyword? c)
       c
       (or (get these-fail c)
-          (symbol c)))))
+          (symbol "mznf" c)))))
 
 ;;; The DSL operators are just the Mzn keywords things as symbols. 
 (def mzn2dsl-map 

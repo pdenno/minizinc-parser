@@ -7,3 +7,7 @@
             [clojure.spec-alpha2.test :as test]
             [pdenno.mznp.mzn-fns :refer :all]))
 
+(alias 'mznf 'pdenno.mznp.mzn-fns)
+      
+
+
