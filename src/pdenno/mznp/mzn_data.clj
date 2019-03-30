@@ -15,6 +15,14 @@
     (assoc ?m :model-types (model-types ?m))
     #_(intern-data! ?m)))
 
+(defn definable?
+  "Returns true if data is established to evaluate the object."
+  [model id])
+
+(defn var-decl-sort-order
+  "Sort the declarations into an order in which they can be evaluated."
+  [model])
+
 (defn intern-data!
   "Intern data objects and define specs wherever possible in the model."
   [model]

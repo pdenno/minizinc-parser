@@ -1,21 +1,15 @@
-{:constraints
- [{:type :MznCallExpr,
-   :op :alldifferent,
-   :args
-   [{:type :MznExpr,
-     :atom
-     {:type :MznExprAtom,
-      :head {:type :MznId, :name "DoesTask"}}}]}],
+{
+ :constraints [(mznf/alldifferent DoesTask)],
  :var-decls
  {"n" {:name "n", :vartype {:datatype :int}, :value 3},
   "Workers"
   {:name "Workers",
    :vartype {:datatype :mzn-set, :base-type :int},
-   :value (mznf/range-op 1 n)},
+   :value (mznf/range 1 n)},
   "Tasks"
   {:name "Tasks",
    :vartype {:datatype :mzn-set, :base-type :int},
-   :value (mznf/range-op 1 n)},
+   :value (mznf/range 1 n)},
   "Cost"
   {:name "Cost",
    :vartype

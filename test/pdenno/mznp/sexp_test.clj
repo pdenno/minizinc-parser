@@ -49,7 +49,7 @@
      (is (= (rewrite* ::mznp/var-decl-item "set of int: Lines = 1..numLines")
             '{:name "Lines",
               :vartype {:datatype :mzn-set, :base-type :int},
-              :value (range-op 1 numLines)}))
+              :value (mznf/range 1 numLines)}))
      (is (= (rewrite* ::mznp/var-decl-item "array[Lines] of int: LinePenalty")
             '{:name "LinePenalty",
               :vartype {:datatype :mzn-array, :index [Lines], :base-type :int},
@@ -59,7 +59,7 @@
               :vartype
               {:datatype :mzn-2d-array,
                :index [Jobs Weeks],
-               :base-type (range-op 0 workforce_size)},
+               :base-type (mznf/range 0 workforce_size)},
               :value nil,
               :var? true})))))
 
@@ -69,7 +69,7 @@
      (is (= (rewrite*
              ::mznp/gen-call-expr
              "sum (j in Jobs) (if (LineOfJob[j] == lin) then WorkersOnJob[j,w1] else 0 endif)")
-            '(sum  [[j Jobs]]   true
+            '(mznf/sum  [[j Jobs]]   true
                    (if  (== (mznf/aref LineOfJob j) lin) (mznf/aref WorkersOnJob j w1) 0))))
      
      (is (= (rewrite*
@@ -82,29 +82,28 @@
              ((sum (j in Jobs) (if (LineOfJob[j] == lin) then WorkersOnJob[j,w1] else 0 endif))
               ==
               (sum (j in Jobs) (if (LineOfJob[j] == lin) then WorkersOnJob[j,w2] else 0 endif)))")
-            '(forall [[lin Lines] [w1 w2 Weeks]]
-                      (and-op (and-op (< w1 w2) 
-                                            (forall [[j Jobs]]  true
-                                                    (and-op
-                                                     (assign (mznf/aref LineOfJob j) lin)
+            '(mznf/forall [[lin Lines] [w1 w2 Weeks]]
+                      (and (and (< w1 w2) 
+                                            (mznf/forall [[j Jobs]]  true
+                                                    (and
+                                                     (mznf/assign (mznf/aref LineOfJob j) lin)
                                                      (not= (mznf/aref WorkersOnJob j w1) 0))))
                                     (== w2
-                                        (max
-                                         [[j Jobs] [w (range-op (+ w1 1) numWeeksScheduled)]]
-                                         
+                                        (mznf/max
+                                         [[j Jobs] [w (mznf/range (+ w1 1) numWeeksScheduled)]]
                                          true
                                          (if
-                                             (and-op
+                                             (and
                                               (== (mznf/aref LineOfJob j) lin)
                                               (not= (mznf/aref WorkersOnJob j w) 0))
                                            w
                                            0))))
                      (==
-                      (sum  [[j Jobs]]  true
+                      (mznf/sum  [[j Jobs]]  true
                             (if  (== (mznf/aref LineOfJob j) lin)
                               (mznf/aref WorkersOnJob j w1)
                               0))
-                      (sum [[j Jobs]] true
+                      (mznf/sum [[j Jobs]] true
                            (if
                                (== (mznf/aref LineOfJob j) lin)
                              (mznf/aref WorkersOnJob j w2)

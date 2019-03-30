@@ -5,7 +5,7 @@
             [clojure.set    :as sets]
             [clojure.spec.alpha :as s]
             [pdenno.mznp.utils :as util]
-            [pdenno.mznp.mzn-fns :refer :all :as mznf]
+            [pdenno.mznp.mzn-fns :refer :all :as mznf :exclude [range]]
             [pdenno.mznp.mznp :as mznp]))
 
 ;;; The functions that end in a * (rewrite* and form-bin-ops*) are 'toplevel' and good for testing. 
@@ -28,7 +28,7 @@
      (do (when @debugging? (cl-format *out* "~A<-- ~A returns ~S~%" (util/nspaces (count @tags)) ~tag result#))
          result#))))
 
-(declare map-simplify remove-nils rewrite precedence op-precedence mzn2dsl-map safe2symbol)
+(declare map-simplify remove-nils rewrite precedence op-precedence)
 (declare order-bin-ops reduce-bin-ops)
 
 (defn map-simplify
@@ -56,13 +56,32 @@
 
 (defmulti rewrite-meth #'rewrite-dispatch)
 
+(def mznp2mznf-binops ; POD I'm lost! IF these are mznp, why is \+ '+ etc. 
+  {:<= '<=, \< '<, :not= 'not=, :subset 'mznf/subset, :++-op 'mznf/++, :mod 'mznf/mod,
+   :<--op 'mznf/<-, \* '*, \> '>, :->-op 'mznf/->, :>= '>=, :range-op 'mznf/range,
+   \- '-, :div 'mznf/div, :xor 'mznf/xor, 'or 'or, :== '==, \/ '/, :intersect 'mznf/intersect
+   :<->-op 'mznf/<->, :and-op 'and, \= 'mznf/assign, \+ '+, :superset 'mznf/superset,  
+   :union 'mznf/union, :symdiff 'mznf/symdiff, :in 'mznf/in, :diff 'mznf/diff})
+
+(def already-rewritten-ops (-> mznp2mznf-binops vals set))
+
+#_(def char2mznf-binops
+  {\< '<, \* '*, \> '>, \- '-, \/ '/,  \+ '+, \= '=})
+
+(def mznp-constants #{:int :float :string})
+
 (defn rewrite [obj & keys]
-  (let [tag
-        (cond (map? obj)     (:type obj)
-              (char? obj)    :char
-              (keyword? obj) :keyword
-              :else          :default)]
-    (rewrite-meth tag obj keys)))
+  (cond (map? obj)                  (rewrite-meth (:type obj) obj keys)
+        (string? obj)               obj
+        (number? obj)               obj
+        (symbol? obj)               obj
+        (nil? obj)                  obj ; for optional things like (-> m :where rewrite)
+        (already-rewritten-ops obj) obj ; already rewritten (POD worth tracking down?)
+        #_(char2mznf-binops obj)      #_(char2mznf-binops obj)   ; Certain characters are operators.
+        (mznp2mznf-binops obj)      (mznp2mznf-binops obj)   ; Certain keywords are operators.
+        (mznp-constants obj)        obj                      ; Certain keywords are constants.
+        (seq? obj)                  obj ; already rewritten (POD worth tracking down?)
+        :else (throw (ex-info "Don't know how to rewrite obj." {:obj obj}))))
 
 ;;;----------------------- Rewriting ---------------------------------------
 ;;;----------------------- Top-level ---------------------------------------
@@ -126,7 +145,9 @@
   (as-> m ?m
     (cond (not (:tail ?m)) (-> m :atom rewrite)
           (= :MznExprBinopTail (-> ?m :tail :type))
-          (map rewrite (-> ?m reduce-bin-ops :bin-ops order-bin-ops)) ; reduce-bin-op handles primaries (nested exprs)
+          (as-> ?m ?m1
+            #_(update-in ?m1 [:tail :bin-op] rewrite) ; wrong... wrong
+            (map rewrite (-> ?m1 reduce-bin-ops :bin-ops order-bin-ops))) ; reduce-bin-op handles primaries (nested exprs)
           :else (throw (ex-info "Some other tail" {:tail (:tail ?m)})))))
 
 (defrewrite :MznIfExpr [m]
@@ -156,26 +177,9 @@
 (defrewrite :MznId [m]
   (-> m :name symbol))
 
-(defrewrite :char [c]
-  (let [sc (safe2symbol c)]
-    (if (contains? mzn2dsl-map sc)
-      (mzn2dsl-map sc)
-      (throw (ex-info "Unknown syntactic character" {:char c})))))
-
-#_(def mzn-keyword? (set (map keyword mznp/mzn-keywords)))
-
-(defrewrite :keyword [k]
-  (cond (contains? mzn2dsl-map k) (mzn2dsl-map k)     ; these are operators
-        #_(mzn-keyword k) #_k
-        (#{:int :float} k) k                          ; there are mzn keywords (POD do I really only want :int and :float
-        :else (throw (ex-info "Unknown keyword" {:key k}))))
-
-(defrewrite :default [m]
-  m)
-
 ;;;(forall [[j Jobs]] (<= (mznIdx endWeek j) (mznIdx WeeksTillDue j)))
 (defrewrite :MznGenCallExpr [m]
-  (let [op (-> m :gen-call-op util/keysym)
+  (let [op (symbol "mznf" (-> m :gen-call-op name str))
         gens (mapv rewrite (-> m :generators))
         where (-> m :where rewrite)
         body (-> m :body rewrite)]
@@ -185,8 +189,10 @@
   (conj (mapv rewrite (:ids m))
         (rewrite (:expr m))))
 
-(defrewrite :MznAssignment [m]
-  [(-> m :lhs rewrite keyword) (-> m :rhs rewrite)])
+(defrewrite :MznAssignment [m] ; POD used yet? 
+  `(mznf/assign
+    ~(-> m :lhs rewrite)
+    ~(-> m :rhs rewrite)))
 
 (defrewrite :id-type [m]
   (rewrite m))
@@ -196,6 +202,7 @@
 
 ;;; MiniZinc Specification, section 7.2.
 ;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * (300) binds tighter than + (400).
+;;; Precedence ordering is done *within* rewriting, thus it is done with mznp symbols, not the mznf ones. 
 (def op-precedence-tbl ; lower :val means binds tighter. 
   {:<->-op    {:assoc :left :val 1200}
    :->-op     {:assoc :left :val 1100}
@@ -203,12 +210,12 @@
    :or-op     {:assoc :left :val 1000}
    :xor       {:assoc :left :val 1000}
    :and-op    {:assoc :left :val 900} 
-   '<         {:assoc :none :val 800}
-   '>         {:assoc :none :val 800}
+   \<         {:assoc :none :val 800}
+   \>         {:assoc :none :val 800}
    :<=        {:assoc :none :val 800}
    :>=        {:assoc :none :val 800}
    :==        {:assoc :none :val 800}
-   'assign    {:assoc :none :val 800}
+   \=         {:assoc :none :val 800}
    :not=      {:assoc :none :val 800}
    :in        {:assoc :none :val 700}
    :subset    {:assoc :none :val 700}
@@ -217,29 +224,15 @@
    :diff      {:assoc :left :val 600}
    :symdiff   {:assoc :left :val 600}
    :range-op  {:assoc :none :val 500}
-   '+         {:assoc :left :val 400}
-   '-         {:assoc :left :val 400}
-   '*         {:assoc :left :val 300}
+   \+         {:assoc :left :val 400}
+   \-         {:assoc :left :val 400}
+   \*         {:assoc :left :val 300}
    :div       {:assoc :left :val 300}
    :mod       {:assoc :left :val 300}
-   '/         {:assoc :left :val 300}
+   \/         {:assoc :left :val 300}
    :intersect {:assoc :left :val 300}   
    :++-op     {:assoc :right :val 200}
    :<ident>   {:assoc :left  :val 100}})
-
-(defn safe2symbol
-  "Some characters don't convert to symbols!"
-  [c]
-  (let [these-fail {\< '<, \> '>, \= 'assign, \+ '+, \- '-, \* '* \/ '/}]
-    (if (keyword? c)
-      c
-      (or (get these-fail c)
-          (symbol "mznf" c)))))
-
-;;; The DSL operators are just the Mzn keywords things as symbols. 
-(def mzn2dsl-map 
-  (zipmap (keys op-precedence-tbl)
-          (map util/keysym (keys op-precedence-tbl))))
 
 (defn precedence [op]
   (if (contains? op-precedence-tbl op)
@@ -294,9 +287,10 @@
         :else
         exp)) ; this is the 'recursion cutoff' condition
 
+(def spec-ops (-> mznp2mznf-binops vals set))
+
 (s/check-asserts true)
-(def operator? (-> op-precedence-tbl keys set))
-(s/def ::op operator?)
+(s/def ::op spec-ops)
 (s/def ::pos  (s/and integer? pos?)) ; I *think* pos?
 (s/def ::prec (s/and integer? pos?))
 (s/def ::info-op  (s/keys :req-un [::pos ::op ::prec]))
@@ -310,10 +304,9 @@
    (fn [res [k v]]
      (if (odd? k)
        (-> res
-           (update :operators #(let [sym (safe2symbol v)]
-                                 (conj % {:pos k
-                                          :op sym
-                                          :prec (-> op-precedence-tbl sym :val)})))
+           (update :operators #(conj % {:pos k
+                                        :op (rewrite v)
+                                        :prec (:val (op-precedence-tbl v))}))
            (update :args #(conj % :$op$)))
        (update res :args #(conj % v))))
    {:operators [] :args []}
@@ -366,6 +359,7 @@
   [bvec]
   (let [bvec (mapv #(if (:bin-ops %) (-> % :bin-ops order-bin-ops) %) bvec) ; Recursively process primaries to args.
         info (bvec2info bvec)]
+    (reset! diag {:bvec bvec})
     (s/assert ::info info)
     (as-> info ?info
       (reduce (fn [info pval]

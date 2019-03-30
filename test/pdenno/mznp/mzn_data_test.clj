@@ -4,7 +4,6 @@
             [clojure.spec-alpha2 :as s]
             [pdenno.mznp.mzn-data :as mznd]))
 
-
 (deftest mzn-datastructure
   (testing "that MiniZinc data structures pass their specs."
     (mznd/make-data '{:name "n", :vartype {:datatype :int}, :value 3})
