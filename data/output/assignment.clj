@@ -7,7 +7,7 @@
      {:type :MznExprAtom,
       :head {:type :MznId, :name "doesTask"}}}]}],
  :var-decls
- {"n" {:name "n", :vartype :int, :init 3},
+ {"n" {:name "n", :vartype {:datatype :int}, :init 3},
   "Workers"
   {:name "Workers",
    :vartype {:datatype :mzn-set, :base-type :int},
@@ -19,7 +19,7 @@
   "cost"
   {:name "cost",
    :vartype
-   {:datatype :mzn-array, :index [Workers Tasks], :base-type :int},
+   {:datatype :mzn-2d-array, :index [Workers Tasks], :base-type :int},
    :init [[10 20 13] [22 11 31] [14 20 18]]},
   "doesTask"
   {:name "doesTask",
