@@ -15,13 +15,56 @@
     (assoc ?m :model-types (model-types ?m))
     #_(intern-data! ?m)))
 
-(defn definable?
-  "Returns true if data is established to evaluate the object."
-  [model id])
+(defn uses-indexes
+  "Return a set of the indexes used by the data."
+  [model id]
+  (set (map keyword (-> model :core :var-decls id :vartype :index))))
 
+(defn uses-vars
+  [model id]
+  (set
+   (map keyword
+        (sets/intersection
+         (set (map #(-> % :name symbol) (-> model :core :var-decls vals)))
+         (set (-> model :core :var-decls id :value flatten))))))
+
+(defn definable?
+  "Returns true if data is established to evaluate the object. The assume argument
+   is a collection of ids (strings) that can be assumed to be established in the
+   scope of the investigation of the id."
+  (([model id] (definable? model id []))
+   ([model id assume]
+    (cond (literal? (-> model :core :var-decls id :value)) true
+          (-> model :core :var-decls id :var?) false
+          ;; none of the variables it uses uses it and they are all 
+                    
+
+(defn literal?
+  "Return true if the data is literal"
+  [d]
+  (cond (or (number? d) (string? d)) true
+        (seq? d) false
+        (symbol? d) false
+        (nil? d) false ; not yet defined. 
+        (or (vector? d) (set? d)) (every? literal? d)))
+
+(defn var-decl-comparator
+  "Return -1 if x should be established before y."
+  [model id-x id-y]
+  (let [x (-> model :core :var-decls id-x)
+        y (-> model :core :var-decls id-y)
+        vx (:value vx)
+        vy (:value vy)]
+    (cond (and (literal? vx) (literal? vy))
+          (compare id-x id-y)
+          (literal? vx) -1
+          (literal? vy) +1)))
+          
 (defn var-decl-sort-order
   "Sort the declarations into an order in which they can be evaluated."
-  [model])
+  [model]
+  (let [ids (-> model :core :var-decls keys)]
+    ))
 
 (defn intern-data!
   "Intern data objects and define specs wherever possible in the model."
@@ -52,7 +95,7 @@
 (defn model-types
   "Return the set of the mzn-user-qualified type name keyword in the model."
   [model]
-  (set (map #(keyword "mzn-user" %)
+  (set (map #(keyword "mzn-user" (name %))
             (-> model :core :var-decls keys))))
 
 (defn type2spec

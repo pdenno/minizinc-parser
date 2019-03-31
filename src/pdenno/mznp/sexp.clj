@@ -92,7 +92,7 @@
                     (update res :constraints conj (rewrite item))
                     (= type :MznVarDecl)
                     (let [vd (rewrite item)]
-                      (assoc-in res [:var-decls (:name vd)] vd))
+                      (assoc-in res [:var-decls (-> vd :name keyword)] vd))
                     (= type :MznSolve)
                     (assoc res :solve (rewrite item))
                     :else res)))
