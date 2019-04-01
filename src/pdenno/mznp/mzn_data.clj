@@ -4,40 +4,22 @@
             [clojure.string :as str]
             [clojure.set    :as sets]
             [clojure.spec-alpha2 :as s]
+            [pdenno.mznp.mznp :as mznp]
             [pdenno.mznp.sexp :as sexp]
-            [pdenno.mznp.mzn-fns :as mznf]))
+            [pdenno.mznp.mzn-fns :as mznf]
+            [mzn-user :as mznu]))
 
 (declare model-types intern-data! intern-data)
+
+(def diag (atom nil))
+
+;;; ToDo: Make alldifferent a spec!
 
 (defn process-model [file]
   (as-> {} ?m
     (assoc ?m :core (sexp/rewrite* ::mznp/model file :file? true))
     (assoc ?m :model-types (model-types ?m))
-    #_(intern-data! ?m)))
-
-(defn uses-indexes
-  "Return a set of the indexes used by the data."
-  [model id]
-  (set (map keyword (-> model :core :var-decls id :vartype :index))))
-
-(defn uses-vars
-  [model id]
-  (set
-   (map keyword
-        (sets/intersection
-         (set (map #(-> % :name symbol) (-> model :core :var-decls vals)))
-         (set (-> model :core :var-decls id :value flatten))))))
-
-(defn definable?
-  "Returns true if data is established to evaluate the object. The assume argument
-   is a collection of ids (strings) that can be assumed to be established in the
-   scope of the investigation of the id."
-  (([model id] (definable? model id []))
-   ([model id assume]
-    (cond (literal? (-> model :core :var-decls id :value)) true
-          (-> model :core :var-decls id :var?) false
-          ;; none of the variables it uses uses it and they are all 
-                    
+    (intern-data! ?m)))
 
 (defn literal?
   "Return true if the data is literal"
@@ -48,28 +30,61 @@
         (nil? d) false ; not yet defined. 
         (or (vector? d) (set? d)) (every? literal? d)))
 
-(defn var-decl-comparator
-  "Return -1 if x should be established before y."
-  [model id-x id-y]
-  (let [x (-> model :core :var-decls id-x)
-        y (-> model :core :var-decls id-y)
-        vx (:value vx)
-        vy (:value vy)]
-    (cond (and (literal? vx) (literal? vy))
-          (compare id-x id-y)
-          (literal? vx) -1
-          (literal? vy) +1)))
-          
-(defn var-decl-sort-order
-  "Sort the declarations into an order in which they can be evaluated."
-  [model]
-  (let [ids (-> model :core :var-decls keys)]
-    ))
+(defn indexes-used
+  "Return the set of the indexes used by the data."
+  [model id]
+  (set (map keyword (-> model :core :var-decls id :vartype :index))))
 
+;;; The 2019-03-30 version of this might have been sufficient. It depends on whether
+;;; or not you expect that mzn code already passed mzn parsing (not my parsing).
+;;; If it did, then no undefined variables are used. I don't assume that here. 
+(def collect (atom #{}))
+(defn vars-used! [form]
+  (cond (symbol? form) (swap! collect #(conj % (keyword form)))
+        (literal? form) :whatever
+        (seq? form) (doall (map vars-used! (rest form)))))
+(defn vars-used [form]
+  "Return the set of variables (any symbol actually) used in the form."
+  (reset! collect #{})
+  (vars-used! form)
+  @collect)
+
+(defn definable?
+  "Returns true if data is established to evaluate the object. The assume argument
+   is a collection of ids (strings) that can be assumed to be established in the
+   scope of the investigation of the id."
+  ([model id] (definable? model id #{}))
+  ([model id assume]
+   (let [used (sets/union (sets/difference (vars-used (-> model :core :var-decls id :value)) assume)
+                          (sets/difference (indexes-used model id) assume))]
+     (cond (literal? (-> model :core :var-decls id :value)) true
+           (-> model :core :var-decls id :var?) false
+           ;; Everything used is assumed defined and nothing used uses this id. 
+           (and (every? #(not ((vars-used (-> model :core :vars-used % :value)) id)) used)
+                (every? #(not ((indexes-used model %) id)) used)
+                (every? assume used)) true
+           :else false))))
+
+;;; POD Need to look for cycles? 
+(defn data-dependency-order
+  "Sort the var-decls into an order in which they can be evaluated."
+  [model]
+  (let [ids (remove #(-> model :core :var-decls % :var?) (-> model :core :var-decls keys))]
+    (loop [result (vec (filter #(literal? (-> model :core :var-decls % :value)) ids))
+           remaining (sets/difference (set ids) (set result))]
+      (let [more? (filter #(definable? model % (set result)) remaining)]
+        (if (empty? more?)
+          result
+          (recur (into result more?)
+                 (sets/difference remaining (set more?))))))))
+      
 (defn intern-data!
   "Intern data objects and define specs wherever possible in the model."
   [model]
-  (doall (map #(intern-data model %) (-> model :core :var-decls vals))))
+  (doall (map #(intern-data model %) (data-dependency-order model)))
+  (doall (map #(intern-data model %) (map #(-> % :name keyword)
+                                          (filter :var? (-> model :core :var-decls vals)))))
+  model)
 
 ;;; ((user-intern "x") 2)
 (defn user-intern
@@ -98,24 +113,38 @@
   (set (map #(keyword "mzn-user" (name %))
             (-> model :core :var-decls keys))))
 
-(defn type2spec
-  "Depending on type arg, return either
-  (1) the clojure type predicate corresponding to the MiniZinc base type, or
-  (2) namespace (mzn-user) qualifed user-defined type keyword corresponding to TYPE."
+(s/def ::int integer?)
+(s/def ::float float?)
+(s/def ::string string?)
+(s/def ::anything (fn [_] true))
+
+(defn type2spec!
+  "If the arg names a MiniZinc base type, return the corresponding spec (::int etc.).
+   If the arg names a MiniZinc data object, then define a new spec for *elements* of the named
+   data object (not the type of data object). The new spec is named :mznu/<Dataobject name>-elem.
+   Specifically, if the datatype is a index set and populated, you can specify exactly what values
+   are allowed."
   [model type]
-  (or ({:int integer?, :float float? :string string?} type)
-      ((model-types model) type)))
+  (or ({:int ::int, :float ::float :string ::string} type)
+      (when (symbol? type)
+        (let [user-obj (-> (intern 'mzn-user (-> type name symbol)) var-get)
+              spec-name (keyword "mzn-user" (str (name type) "-elem"))]
+          (cond (set? user-obj)
+                (s/register spec-name `(s/spec* ~user-obj)),
+                (#{:int :float :string} (-> model :core :var-decls type :vartype :base-type))
+                (type2spec! (-> model :core :var-decls type :vartype :base-type))
+                :else ::anything)))))
 
 ;;; (-> var-decl :vartype :datatype) are  #{:int :float :mzn-set :mzn-array :mzn-2d-array})
-(defn intern-data-dispatch [model var-decl] (-> var-decl :vartype :datatype))
+(defn intern-data-dispatch [model id] (-> model :core :var-decls id :vartype :datatype))
 
 (defmulti intern-data
-  "Make a clojure object representing the MiniZinc object; define its spec."
+  "Make a mzn-user interned clojure object representing the MiniZinc object; define its spec."
   #'intern-data-dispatch)
 
 (defmethod intern-data :int
   [model id]
-  (let [var-decl (-> model :var-decls id)]
+  (let [var-decl (-> model :core :var-decls id)] 
     ((user-intern (:name var-decl)) (-> var-decl :value user-eval)) 
     (s/register (keyword "mzn-user" (:name var-decl))
                 (s/spec* `(s/or
@@ -124,7 +153,7 @@
 
 (defmethod intern-data :float
   [model id]
-  (let [var-decl (-> model :var-decls id)]
+  (let [var-decl (-> model :core :var-decls id)] 
     ((user-intern (:name var-decl)) (-> var-decl :value user-eval))
     (s/register (keyword "mzn-user" (:name var-decl))
                 (s/spec* `(s/or
@@ -133,55 +162,74 @@
 
 (defmethod intern-data :mzn-set
   [model id]
-  (let [var-decl (-> model :var-decls id)]
+  (let [var-decl (-> model :core :var-decls id)] 
     ((user-intern (:name var-decl)) (set (-> var-decl :value user-eval)))
     (s/register (keyword "mzn-user" (:name var-decl))
                 (s/spec* `(s/or
                            :not-populated nil?
-                           :populated (s/coll-of ~(type2spec model (-> var-decl :vartype :base-type))
+                           :populated (s/coll-of ~(type2spec! model (-> var-decl :vartype :base-type))
                                                  :kind set?))))))
-  
+
+(defn index-set-size
+  "If the sym corresponds to a sym in mzn-user, and its var's value is a set, 
+   get its size. Otherwise nil."
+  [sym]
+  (let [user-obj (-> (intern 'mzn-user (-> sym name symbol)) var-get)]
+    (when (set? user-obj) (count user-obj))))
+      
 (defmethod intern-data :mzn-array
   [model id]
-  (let [var-decl (-> model :var-decls id)]
+  (let [var-decl (-> model :core :var-decls id)] 
     ((user-intern (:name var-decl)) (-> var-decl :value user-eval))
-    (let [size (-> var-decl :index first :value count)]
+    (let [size-sym (-> var-decl :vartype :index first)
+          size (if (number? size-sym) size-sym (index-set-size size-sym))]
+      (s/register (keyword "mzn-user" (:name var-decl))
+                  (reset! diag
+                          (s/spec* `(s/or
+                                     :not-populated nil?
+                                     :populated (s/coll-of
+                                                 ~(type2spec! model (-> var-decl :vartype :base-type))
+                                                 :kind vector?
+                                                 ~@(when size `(:count ~size))))))))))
+
+(defmethod intern-data :mzn-2d-array
+  [model id]
+  (let [var-decl (-> model :core :var-decls id)] 
+    (let [size-sym   (-> var-decl :vartype :index first)
+          size       (if (number? size-sym) size-sym (index-set-size size-sym))
+          inner-sym  (-> var-decl :vartype :index second)
+          inner-size (if (number? inner-sym) inner-sym (index-set-size inner-sym))
+          inner-key (keyword "mzn-user" (str (:name var-decl) "-inner"))]
+      ((user-intern (:name var-decl)) (-> var-decl :value user-eval))
+      (s/register inner-key
+                  (s/spec* `(s/or
+                             :not-populated nil?
+                             :inners (s/coll-of
+                                      ~(type2spec! model (-> var-decl :vartype :base-type))
+                                      :kind vector?
+                                      ~@(when inner-size `(:count ~inner-size))))))
       (s/register (keyword "mzn-user" (:name var-decl))
                   (s/spec* `(s/or
                              :not-populated nil?
                              :populated (s/coll-of
-                                         ~(type2spec model (-> var-decl :vartype :base-type))
-                                         :kind vector?
-                                         ~@(size `(:count ~size)))))))))
+                                         vector?
+                                         :kind ~inner-key
+                                         ~@(when size `(:count ~size)))))))))
 
-(defmethod intern-data :mzn-2d-array
-  [model id]
-  (let [var-decl (-> model :var-decls id)
-        size (-> var-decl :index first :value count)
-        inner-size (-> var-decl :index second :value count)
-        inner-key (keyword "mzn-user" (str (:name var-decl) "-inner"))]
-    ((user-intern (:name var-decl)) (-> var-decl :value user-eval))
-    (s/register inner-key
-                (s/spec
-                 (s/spec* `(s/or
-                            :not-populated nil?
-                            :populated (s/coll-of
-                                        ~(type2spec model (-> var-decl :vartype :base-type))
-                                        :kind vector?
-                                        ~@(size `(:count ~inner-size)))))))
-    (s/register (keyword "mzn-user" (:name var-decl))
-                (s/spec* `(s/or
-                           :not-populated nil?
-                           :populated (s/coll-of
-                                       vector?
-                                       :kind vector?
-                                       ~@(size `(:count ~size))))))))
+;;; POD As is, this is just getting the :value. Would it be more useful to look what is interned?
+;;; Of course, will have to keep what is interned up to date. (Includes ns-umapping values).
 (defn populated?
   "Returns the data associated with the data object, if any."
   [model id]
-  (-> model :var-decls id :value))
+  (-> model :core :var-decls id :value))
 
-(defn variable?
-  [model id]
-  (-> model :var-decls id :var?))
-  
+(defn unmap-data!
+  "Remove from mzn-user any vars defined there."
+  []
+  (let [mznu (find-ns 'mzn-user)]
+    (doall (map (fn [v]
+                  (let [m (meta v)]
+                    (when (= (:ns m) mznu)
+                      (ns-unmap 'mzn-user (-> m :name symbol)))))
+                (ns-map 'mzn-user)))
+    true))
