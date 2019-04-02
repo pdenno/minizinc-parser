@@ -15,7 +15,7 @@
 
 ;;; ToDo: Make alldifferent a spec!
 
-(defn process-model [file]
+(defn process-model! [file]
   (as-> {} ?m
     (assoc ?m :core (sexp/rewrite* ::mznp/model file :file? true))
     (assoc ?m :model-types (model-types ?m))
@@ -125,15 +125,15 @@
    Specifically, if the datatype is a index set and populated, you can specify exactly what values
    are allowed."
   [model type]
-  (or ({:int ::int, :float ::float :string ::string} type)
-      (when (symbol? type)
-        (let [user-obj (-> (intern 'mzn-user (-> type name symbol)) var-get)
-              spec-name (keyword "mzn-user" (str (name type) "-elem"))]
-          (cond (set? user-obj)
-                (s/register spec-name `(s/spec* ~user-obj)),
-                (#{:int :float :string} (-> model :core :var-decls type :vartype :base-type))
-                (type2spec! (-> model :core :var-decls type :vartype :base-type))
-                :else ::anything)))))
+  (let [user-obj (when (not (#{:int :float :string} type))
+                   (-> (intern 'mzn-user (-> type name symbol)) var-get))]
+    (cond (set? user-obj)
+          (s/register
+           (keyword "mzn-user" (str (name type) "-elem"))
+           (s/spec* user-obj)),
+          (#{:int :float :string} type)
+          ({:int ::int, :float ::float :string ::string} type),
+          :else ::anything)))
 
 ;;; (-> var-decl :vartype :datatype) are  #{:int :float :mzn-set :mzn-array :mzn-2d-array})
 (defn intern-data-dispatch [model id] (-> model :core :var-decls id :vartype :datatype))
@@ -179,27 +179,26 @@
       
 (defmethod intern-data :mzn-array
   [model id]
-  (let [var-decl (-> model :core :var-decls id)] 
-    ((user-intern (:name var-decl)) (-> var-decl :value user-eval))
-    (let [size-sym (-> var-decl :vartype :index first)
-          size (if (number? size-sym) size-sym (index-set-size size-sym))]
+  (let [var-decl   (-> model :core :var-decls id)
+        size-sym   (-> var-decl :vartype :index first)
+        size       (if (number? size-sym) size-sym (index-set-size size-sym))]
+      ((user-intern (:name var-decl)) (-> var-decl :value user-eval))
       (s/register (keyword "mzn-user" (:name var-decl))
-                  (reset! diag
-                          (s/spec* `(s/or
-                                     :not-populated nil?
-                                     :populated (s/coll-of
-                                                 ~(type2spec! model (-> var-decl :vartype :base-type))
-                                                 :kind vector?
-                                                 ~@(when size `(:count ~size))))))))))
+                  (s/spec* `(s/or
+                             :not-populated nil?
+                             :populated (s/coll-of
+                                         ~(type2spec! model (-> var-decl :vartype :base-type))
+                                         :kind vector?
+                                         ~@(when size `(:count ~size))))))))
 
 (defmethod intern-data :mzn-2d-array
   [model id]
-  (let [var-decl (-> model :core :var-decls id)] 
-    (let [size-sym   (-> var-decl :vartype :index first)
-          size       (if (number? size-sym) size-sym (index-set-size size-sym))
-          inner-sym  (-> var-decl :vartype :index second)
-          inner-size (if (number? inner-sym) inner-sym (index-set-size inner-sym))
-          inner-key (keyword "mzn-user" (str (:name var-decl) "-inner"))]
+  (let [var-decl   (-> model :core :var-decls id)
+        size-sym   (-> var-decl :vartype :index first)
+        size       (if (number? size-sym) size-sym (index-set-size size-sym))
+        inner-sym  (-> var-decl :vartype :index second)
+        inner-size (if (number? inner-sym) inner-sym (index-set-size inner-sym))
+        inner-key (keyword "mzn-user" (str (:name var-decl) "-inner"))]
       ((user-intern (:name var-decl)) (-> var-decl :value user-eval))
       (s/register inner-key
                   (s/spec* `(s/or
@@ -212,9 +211,9 @@
                   (s/spec* `(s/or
                              :not-populated nil?
                              :populated (s/coll-of
-                                         vector?
-                                         :kind ~inner-key
-                                         ~@(when size `(:count ~size)))))))))
+                                         ~inner-key
+                                         :kind vector?
+                                         ~@(when size `(:count ~size))))))))
 
 ;;; POD As is, this is just getting the :value. Would it be more useful to look what is interned?
 ;;; Of course, will have to keep what is interned up to date. (Includes ns-umapping values).
