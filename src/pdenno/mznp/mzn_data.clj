@@ -55,12 +55,12 @@
    scope of the investigation of the id."
   ([model id] (definable? model id #{}))
   ([model id assume]
-   (let [used (sets/union (sets/difference (vars-used (-> model :core :var-decls id :value)) assume)
+   (let [used (sets/union (sets/difference (vars-used (-> model :core :var-decls id :val)) assume)
                           (sets/difference (indexes-used model id) assume))]
-     (cond (literal? (-> model :core :var-decls id :value)) true
+     (cond (literal? (-> model :core :var-decls id :val)) true
            (-> model :core :var-decls id :var?) false
            ;; Everything used is assumed defined and nothing used uses this id. 
-           (and (every? #(not ((vars-used (-> model :core :vars-used % :value)) id)) used)
+           (and (every? #(not ((vars-used (-> model :core :vars-used % :val)) id)) used)
                 (every? #(not ((indexes-used model %) id)) used)
                 (every? assume used)) true
            :else false))))
@@ -70,7 +70,7 @@
   "Sort the var-decls into an order in which they can be evaluated."
   [model]
   (let [ids (remove #(-> model :core :var-decls % :var?) (-> model :core :var-decls keys))]
-    (loop [result (vec (filter #(literal? (-> model :core :var-decls % :value)) ids))
+    (loop [result (vec (filter #(literal? (-> model :core :var-decls % :val)) ids))
            remaining (sets/difference (set ids) (set result))]
       (let [more? (filter #(definable? model % (set result)) remaining)]
         (if (empty? more?)
@@ -145,7 +145,7 @@
 (defmethod intern-data :int
   [model id]
   (let [var-decl (-> model :core :var-decls id)] 
-    ((user-intern (:name var-decl)) (-> var-decl :value user-eval)) 
+    ((user-intern (:name var-decl)) (-> var-decl :val user-eval)) 
     (s/register (keyword "mzn-user" (:name var-decl))
                 (s/spec* `(s/or
                            :not-populated nil?
@@ -154,7 +154,7 @@
 (defmethod intern-data :float
   [model id]
   (let [var-decl (-> model :core :var-decls id)] 
-    ((user-intern (:name var-decl)) (-> var-decl :value user-eval))
+    ((user-intern (:name var-decl)) (-> var-decl :val user-eval))
     (s/register (keyword "mzn-user" (:name var-decl))
                 (s/spec* `(s/or
                            :not-populated nil?
@@ -163,7 +163,7 @@
 (defmethod intern-data :mzn-set
   [model id]
   (let [var-decl (-> model :core :var-decls id)] 
-    ((user-intern (:name var-decl)) (set (-> var-decl :value user-eval)))
+    ((user-intern (:name var-decl)) (set (-> var-decl :val user-eval)))
     (s/register (keyword "mzn-user" (:name var-decl))
                 (s/spec* `(s/or
                            :not-populated nil?
@@ -182,7 +182,7 @@
   (let [var-decl   (-> model :core :var-decls id)
         size-sym   (-> var-decl :vartype :index first)
         size       (if (number? size-sym) size-sym (index-set-size size-sym))]
-      ((user-intern (:name var-decl)) (-> var-decl :value user-eval))
+      ((user-intern (:name var-decl)) (-> var-decl :val user-eval))
       (s/register (keyword "mzn-user" (:name var-decl))
                   (s/spec* `(s/or
                              :not-populated nil?
@@ -199,7 +199,7 @@
         inner-sym  (-> var-decl :vartype :index second)
         inner-size (if (number? inner-sym) inner-sym (index-set-size inner-sym))
         inner-key (keyword "mzn-user" (str (:name var-decl) "-inner"))]
-      ((user-intern (:name var-decl)) (-> var-decl :value user-eval))
+      ((user-intern (:name var-decl)) (-> var-decl :val user-eval))
       (s/register inner-key
                   (s/spec* `(s/or
                              :not-populated nil?
@@ -215,12 +215,14 @@
                                          :kind vector?
                                          ~@(when size `(:count ~size))))))))
 
-;;; POD As is, this is just getting the :value. Would it be more useful to look what is interned?
+;;; POD As is, this is just getting the :val. Would it be more useful to look what is interned?
 ;;; Of course, will have to keep what is interned up to date. (Includes ns-umapping values).
 (defn populated?
   "Returns the data associated with the data object, if any."
   [model id]
-  (-> model :core :var-decls id :value))
+  (let [decl (-> model :core :var-decls id)]
+    (or (:val decl)
+        (:kval decl))))
 
 (defn unmap-data!
   "Remove from mzn-user any vars defined there."

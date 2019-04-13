@@ -77,7 +77,6 @@
         (symbol? obj)               obj
         (nil? obj)                  obj ; for optional things like (-> m :where rewrite)
         (already-rewritten-ops obj) obj ; already rewritten (POD worth tracking down?)
-        #_(char2mznf-binops obj)      #_(char2mznf-binops obj)   ; Certain characters are operators.
         (mznp2mznf-binops obj)      (mznp2mznf-binops obj)   ; Certain keywords are operators.
         (mznp-constants obj)        obj                      ; Certain keywords are constants.
         (seq? obj)                  obj ; already rewritten (POD worth tracking down?)
@@ -105,7 +104,7 @@
 (defrewrite :MznVarDecl [m]
   (let [res {:name (-> m :lhs :id rewrite str)
              :vartype (-> m :lhs rewrite)
-             :value (-> m :rhs rewrite)}]
+             :val (-> m :rhs rewrite)}]
     (cond-> res
       (:var? m) (assoc :var? true))))
 
@@ -146,8 +145,8 @@
     (cond (not (:tail ?m)) (-> m :atom rewrite)
           (= :MznExprBinopTail (-> ?m :tail :type))
           (as-> ?m ?m1
-            #_(update-in ?m1 [:tail :bin-op] rewrite) ; wrong... wrong
-            (map rewrite (-> ?m1 reduce-bin-ops :bin-ops order-bin-ops))) ; reduce-bin-op handles primaries (nested exprs)
+            ;; reduce-bin-op handles primaries (nested exprs)
+            (map rewrite (-> ?m1 reduce-bin-ops :bin-ops order-bin-ops))) 
           :else (throw (ex-info "Some other tail" {:tail (:tail ?m)})))))
 
 (defrewrite :MznIfExpr [m]
