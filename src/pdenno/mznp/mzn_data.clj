@@ -1,13 +1,13 @@
 (ns pdenno.mznp.mzn-data
   "Functions and macros that 'implement' (for execution and explanation) MiniZinc data structures"
   (:require [clojure.pprint :refer (cl-format pprint)]
-            [clojure.string :as str]
-            [clojure.set    :as sets]
-            [clojure.spec-alpha2 :as s]
-            [pdenno.mznp.mznp :as mznp]
-            [pdenno.mznp.sexp :as sexp]
-            [pdenno.mznp.mzn-fns :as mznf]
-            [mzn-user :as mznu]))
+            [clojure.string       :as str]
+            [clojure.set          :as sets]
+            [clojure.spec-alpha2  :as s]
+            [pdenno.mznp.mznp     :as mznp]
+            [pdenno.mznp.sexp     :as sexp]
+            [pdenno.mznp.mzn-fns  :as mznf]
+            [pdenno.mznp.mzn-user :as mznu]))
 
 (declare model-types intern-data! intern-data)
 

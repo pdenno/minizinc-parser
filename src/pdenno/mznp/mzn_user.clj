@@ -1,4 +1,4 @@
-(ns mzn-user
+(ns pdenno.mznp.mzn-user
   "Not much here. It is where the user's data structures is interned."
   (:require [clojure.string :as str]
             [clojure.set    :as sets]
