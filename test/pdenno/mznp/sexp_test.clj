@@ -45,22 +45,22 @@
   (testing "Rewriting variable declarations"
     (debug-off
      (is (= (rewrite* ::mznp/var-decl-item "int: n = 3")
-            '{:name "n", :vartype {:datatype :int}, :val 3}))
+            '{:name "n", :vartype {:datatype :int}, :mval 3}))
      (is (= (rewrite* ::mznp/var-decl-item "set of int: Lines = 1..numLines")
             '{:name "Lines",
               :vartype {:datatype :mzn-set, :base-type :int},
-              :val (mznf/range 1 numLines)}))
+              :mval (mznf/range 1 numLines)}))
      (is (= (rewrite* ::mznp/var-decl-item "array[Lines] of int: LinePenalty")
             '{:name "LinePenalty",
               :vartype {:datatype :mzn-array, :index [Lines], :base-type :int},
-              :val nil}))
+              :mval nil}))
      (is (= (rewrite* ::mznp/var-decl-item "array [Jobs,Weeks] of var 0..workforce_size: WorkersOnJob")
             '{:name "WorkersOnJob",
               :vartype
               {:datatype :mzn-2d-array,
                :index [Jobs Weeks],
                :base-type (mznf/range 0 workforce_size)},
-              :val nil,
+              :mval nil,
               :var? true})))))
 
 (deftest bigger-rewriting-tasks

@@ -20,15 +20,3 @@
      `(def ~(symbol (str "constraint-" c-num))
         (fn [~@dvars]
           ~body)))))
-
-
-
-(instrument [info
-            (forall [[w Weeks]]
-                    true
-                    (<= (sum [[j Jobs]]
-                             true
-                             (* (+ (aref TeamLowsByLine (aref LineOfJob j)) (aref TeamHighsByLine (aref LineOfJob j)))
-                                (aref TeamsOnJob j w)))
-                        workforceSize)))
-

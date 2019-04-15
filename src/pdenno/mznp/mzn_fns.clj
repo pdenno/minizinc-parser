@@ -51,39 +51,6 @@
                               %)))))
      (deref current#)))
 
-(defn small-forall [Weeks, Jobs, LineOfJob TeamLowsByLine TeamHighsByLine workforceSize]
-  (forall [[w Weeks]]
-          true
-          (<= (sum [[j Jobs]]
-                   true
-                   (* (+ (aref TeamLowsByLine (aref LineOfJob j)) (aref TeamHighsByLine (aref LineOfJob j)))
-                      (aref TeamsOnJob j w)))
-              workforceSize)))
-
-
-
-(defn big-forall [Weeks, Jobs, LineOfJob TeamLowsByLine TeamHighsByLine workforceSize]
-  (forall
-   [[lin Lines] [w1 w2 Weeks]]
-   (and (and (< w1 w2) (forall [[j Jobs]]
-                               true
-                               (and (= (aref LineOfJob j) lin)
-                                    (not= (aref TeamsOnJob j w1) 0))))
-        (= w2
-            (max
-             [[j Jobs] [w (range (+ w1 1) schedulingWeeks)]]
-             true
-             (if
-                 (and (= (aref LineOfJob j) lin)
-                      (not= (aref TeamsOnJob j w) 0))
-               w
-               0))))
-   (= (sum [[j Jobs]]
-            true
-            (if (= (aref LineOfJob j) lin) (aref TeamsOnJob j w1) 0))
-       (sum [[j Jobs]] true
-            (if (= (aref LineOfJob j) lin) (aref TeamsOnJob j w2) 0)))))
-
 
    
           

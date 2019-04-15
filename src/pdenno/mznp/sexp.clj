@@ -5,7 +5,7 @@
             [clojure.set    :as sets]
             [clojure.spec.alpha :as s]
             [pdenno.mznp.utils :as util]
-            [pdenno.mznp.mzn-fns :refer :all :as mznf :exclude [range]]
+            [pdenno.mznp.mzn-fns :refer :all :as mznf :exclude [range min max]]
             [pdenno.mznp.mznp :as mznp]))
 
 ;;; The functions that end in a * (rewrite* and form-bin-ops*) are 'toplevel' and good for testing. 
@@ -104,7 +104,7 @@
 (defrewrite :MznVarDecl [m]
   (let [res {:name (-> m :lhs :id rewrite str)
              :vartype (-> m :lhs rewrite)
-             :val (-> m :rhs rewrite)}]
+             :mval (-> m :rhs rewrite)}]
     (cond-> res
       (:var? m) (assoc :var? true))))
 
