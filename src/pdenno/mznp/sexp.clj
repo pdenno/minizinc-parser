@@ -59,7 +59,7 @@
 (def mznp2mznf-binops ; POD I'm lost! IF these are mznp, why is \+ '+ etc. 
   {:<= '<=, \< '<, :not= 'not=, :subset 'mznf/subset, :++-op 'mznf/++, :mod 'mznf/mod,
    :<--op 'mznf/<-, \* '*, \> '>, :->-op 'mznf/->, :>= '>=, :range-op 'mznf/range,
-   \- '-, :div 'mznf/div, :xor 'mznf/xor, 'or 'or, :== '==, \/ '/, :intersect 'mznf/intersect
+   \- '-, :div 'mznf/div, :xor 'mznf/xor, 'or 'or, :== '=, \/ '/, :intersect 'mznf/intersect
    :<->-op 'mznf/<->, :and-op 'and, \= 'mznf/assign, \+ '+, :superset 'mznf/superset,  
    :union 'mznf/union, :symdiff 'mznf/symdiff, :in 'mznf/in, :diff 'mznf/diff})
 
@@ -175,6 +175,7 @@
 
 (defrewrite :MznId [m]
   (-> m :name symbol))
+
 
 ;;;(forall [[j Jobs]] (<= (mznIdx endWeek j) (mznIdx WeeksTillDue j)))
 (defrewrite :MznGenCallExpr [m]

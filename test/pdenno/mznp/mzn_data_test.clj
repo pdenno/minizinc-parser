@@ -3,7 +3,8 @@
   (:require [clojure.test :refer :all]
             [clojure.spec-alpha2 :as s]
             [pdenno.mznp.mzn-fns :as mznf]
-            [pdenno.mznp.mzn-data :as mznd]))
+            [pdenno.mznp.mzn-data :as mznd]
+            [pdenno.mznp.mzn-user :as mznu]))
 
 (deftest mzn-data-structure
   (testing "that MiniZinc data structures pass their specs."
@@ -12,18 +13,18 @@
     (is (not (nil? (mznd/user-eval 'Tasks))))
     (is (not (nil? (mznd/user-eval 'Workers))))
     (is (not (nil? (mznd/user-eval 'Cost))))
-    (is (s/valid? :mzn-user/n       (mznd/user-eval 'n)))
-    (is (s/valid? :mzn-user/Tasks   (mznd/user-eval 'Tasks)))
-    (is (s/valid? :mzn-user/Workers (mznd/user-eval 'Workers)))
-    (is (s/valid? :mzn-user/Cost    (mznd/user-eval 'Cost)))
-    (is (s/valid? :mzn-user/Cost      [[10 20 13] [22 11 31] [14 20 13]]))
-    (is (not (s/valid? :mzn-user/Cost [[10 20 13] [22 11 31] [14 20 1.3]]))) ; not everything an int
-    (is (not (s/valid? :mzn-user/Cost [[10 20]    [22 11     [14 20]]])))    ; subvectors too small
-    (is (not (s/valid? :mzn-user/Cost [[10 20 13] [22 11 31]])))             ; too few subvectors
-    (is (s/valid? :mzn-user/DoesTask [3 2 1]))
-    (is (not (s/valid? :mzn-user/DoesTask [4 2 1])))   ; 4 not in index set Tasks. 
-    (is (s/valid? :mzn-user/Tasks-elem 3))
-    (is (not (s/valid? :mzn-user/Tasks-elem 4)))))  ; 4 not in index set Tasks.
+    (is (s/valid? ::mznu/n       (mznd/user-eval 'n)))
+    (is (s/valid? ::mznu/Tasks   (mznd/user-eval 'Tasks)))
+    (is (s/valid? ::mznu/Workers (mznd/user-eval 'Workers)))
+    (is (s/valid? ::mznu/Cost    (mznd/user-eval 'Cost)))
+    (is (s/valid? ::mznu/Cost      [[10 20 13] [22 11 31] [14 20 13]]))
+    (is (not (s/valid? ::mznu/Cost [[10 20 13] [22 11 31] [14 20 1.3]]))) ; not everything an int
+    (is (not (s/valid? ::mznu/Cost [[10 20]    [22 11     [14 20]]])))    ; subvectors too small
+    (is (not (s/valid? ::mznu/Cost [[10 20 13] [22 11 31]])))             ; too few subvectors
+    (is (s/valid? ::mznu/DoesTask [3 2 1]))
+    (is (not (s/valid? ::mznu/DoesTask [4 2 1])))   ; 4 not in index set Tasks. 
+    (is (s/valid? ::mznu/Tasks-elem 3))
+    (is (not (s/valid? ::mznu/Tasks-elem 4)))))  ; 4 not in index set Tasks.
 
 
 (def define-path-model

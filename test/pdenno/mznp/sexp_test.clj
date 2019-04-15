@@ -19,7 +19,7 @@
   (testing "Test atomic rewriting tasks."
     (debug-off
      (is (= (rewrite* ::mznp/expr "1") 1))
-     (is (= (rewrite* ::mznp/expr "1 + x") '(+ 1 x)))
+     (is (= (rewrite* ::mznp/expr "1 + x")   '(+ 1 x)))
      (is (= (rewrite* ::mznp/expr "(1 + x)") '(+ 1 x))))))
 
 (deftest reducing-bin-ops
