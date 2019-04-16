@@ -19,12 +19,12 @@
 ;;;             there was also at least an expression, for example (mznf/range 0 numJobs) in
 ;;;             (-> info :var-delcs <name> :uval) 
 
-(declare add-specs uget)
+(declare add-specs register-spec-info uget)
 (def diag (atom nil))
 
 ;;; ======================== Interning in mznu ====================================================
-(def mznu-string "pdenno.mznp.mzn-user")
-(def mznu-symbol 'pdenno.mznp.mzn-user)
+(def mznu-ns-string "pdenno.mznp.mzn-user")
+(def mznu-ns-symbol 'pdenno.mznp.mzn-user)
 
 ;;; ToDo: Make alldifferent a spec!
 
@@ -95,8 +95,8 @@
    argument, the value to set the variable to."
   [sym-str]
   (fn [arg]
-    (binding [*ns* (find-ns (symbol mznu-string))]
-      (intern (find-ns (symbol mznu-string))
+    (binding [*ns* (find-ns (symbol mznu-ns-string))]
+      (intern (find-ns (symbol mznu-ns-string))
               (symbol sym-str)
               arg))))
 
@@ -108,7 +108,7 @@
    If the sexp has unresolvable symbols, catch them and return :unresolved-symbol."
   [form]
   (println "eval form: " form)
-  (binding [*ns* (find-ns (symbol mznu-string))]
+  (binding [*ns* (find-ns (symbol mznu-ns-string))]
     (eval form)))
 
 (defn intern-model-data
@@ -119,7 +119,7 @@
             (let [var-decl (-> I :core :var-decls id)
                   needed-syms (vars-used (or (:mval var-decl) (:kval var-decl)))
                   val  (or (:kval var-decl) (:mval var-decl))]
-              (if (and (apply bound? (map #(intern mznu-symbol (-> % name symbol)) needed-syms))
+              (if (and (apply bound? (map #(intern mznu-ns-symbol (-> % name symbol)) needed-syms))
                        (every? #(-> % uget nil? not) needed-syms))
                 (do ((user-intern (name id)) (user-eval val))
                     (assoc-in I [:core :var-decls id :uval] (uget id)))
@@ -132,14 +132,14 @@
   "Return the value interned for the argument, which can be a keyword
    or a symbol (need not be interned)."
   [sym]
-  (-> (intern mznu-symbol (-> sym name symbol)) var-get))
+  (-> (intern mznu-ns-symbol (-> sym name symbol)) var-get))
 
 (defn executable-form?
   "Return true if the thing is form and the data it needs is interned."
   [info form]
-  (when (seq? form)
+  (when (or (seq? form) (symbol? form))
     (let [vars (vars-used form)]
-      (and (apply bound? (map #(intern mznu-symbol (-> % name symbol)) vars)) 
+      (and (apply bound? (map #(intern mznu-ns-symbol (-> % name symbol)) vars)) 
            (every? #(-> % uget nil? not) vars)))))
 
 ;;; ======================== Specs ====================================================
@@ -152,16 +152,16 @@
    are allowed."
   [info id]
   (let [var-decl  (-> info :core :var-decls id)
+        mval      (:mval var-decl)
         base-type (-> var-decl :vartype :base-type)
-        obj       (when (not (#{:int :float :string} base-type))
-                    (if (executable-form? info base-type) 
-                     (user-eval base-type) ; typically an index set 
-                     (var-get (intern mznu-symbol (-> var-decl :name symbol)))))
-        user-obj  (if (coll? obj) (set obj) (-> obj list set))] ; make it a set (predicate function).
+        obj       (cond (executable-form? info mval)       (user-eval mval),      ; set of int: Lines = 1..numLines;
+                        (executable-form? info base-type)  (user-eval base-type), ; array [J,W] of  0..n: T; OR array[x] of foo;
+                        :else nil)
+        user-obj  (when obj (if (coll? obj) (set obj) (-> obj list set)))]       ; make it a set (predicate function).
     (cond (set? user-obj)
           (register-spec-info
            info
-           (keyword mznu-string (str (:name var-decl) "-elem"))
+           (keyword mznu-ns-string (str (:name var-decl) "-prop"))
            (s/spec* user-obj)),
           (#{:int :float :string} base-type)
           (register-spec-info info ({:int ::int, :float ::float :string ::string} base-type)),
@@ -181,8 +181,8 @@
     (dissoc ?info :temp-model-spec)))
 
 (defn register-spec-info
-  "Update the (-> model :model-specs) with a spec; set :temp-type-spec."
-  ([info key] (assoc info :temp-type-spec key))
+  "Update the (-> model :model-specs) with a spec; set :temp-model-spec."
+  ([info key] (assoc info :temp-model-spec key))
   ([info key body]
    (let [spec (s/register key body)]
      (-> info
@@ -200,7 +200,7 @@
   [info id]
   (register-spec-info
    info
-   (keyword mznu-string (name id))
+   (keyword mznu-ns-string (name id))
    (s/spec* `(s/or
               :not-populated nil?
               :populated integer?))))
@@ -209,7 +209,7 @@
   [info id]
   (register-spec-info
    info
-   (keyword mznu-string (name id))
+   (keyword mznu-ns-string (name id))
    (s/spec* `(s/or
               :not-populated nil?
               :populated float?))))
@@ -221,7 +221,7 @@
       (base-type-spec ?info id)
       (register-spec-info
        ?info
-       (keyword mznu-string (name id))
+       (keyword mznu-ns-string (name id))
        (s/spec* `(s/or
                   :not-populated nil?
                   :populated (s/coll-of ~(:temp-model-spec ?info)
@@ -230,7 +230,7 @@
   "If the sym corresponds to a sym in mzn-user, and its var's value is a set, 
    get its size. Otherwise nil."
   [sym]
-  (let [user-obj (-> (intern mznu-symbol (-> sym name symbol)) var-get)]
+  (let [user-obj (-> (intern mznu-ns-symbol (-> sym name symbol)) var-get)]
     (when (coll? user-obj) (count user-obj))))
       
 (defmethod add-specs :mzn-array
@@ -242,7 +242,7 @@
       (base-type-spec info id)
       (register-spec-info
        ?info
-       (keyword mznu-string (name id))
+       (keyword mznu-ns-string (name id))
        (s/spec* `(s/or
                   :not-populated nil?
                   :populated (s/coll-of ~(:temp-model-spec ?info)
@@ -256,7 +256,7 @@
         size       (if (number? size-sym) size-sym (index-set-size size-sym))
         inner-sym  (-> var-decl :vartype :index second)
         inner-size (if (number? inner-sym) inner-sym (index-set-size inner-sym))
-        inner-key  (keyword mznu-string (str (name id) "-inner"))]
+        inner-key  (keyword mznu-ns-string (str (name id) "-inner"))]
     (as-> info ?info
       (base-type-spec ?info id)
       (register-spec-info
@@ -267,7 +267,7 @@
                             ~@(when inner-size `(:count ~inner-size)))))
       (register-spec-info
        ?info
-       (keyword mznu-string (name id))
+       (keyword mznu-ns-string (name id))
        (s/spec* `(s/or
                   :not-populated nil?
                   :populated (s/coll-of
@@ -292,21 +292,22 @@
 (defn unmap-data!
   "Remove from mzn-user any vars defined there."
   []
-  (let [mznu (find-ns mznu-symbol)]
+  (let [mznu (find-ns mznu-ns-symbol)]
     (doall (map (fn [v]
                   (let [m (meta v)]
                     (when (= (:ns m) mznu)
-                      (ns-unmap mznu-symbol (-> m :name symbol)))))
-                (ns-map mznu-symbol)))
+                      (ns-unmap mznu-ns-symbol (-> m :name symbol)))))
+                (ns-map mznu-ns-symbol)))
     true))
 
 (defn process-model!
   "This is used mostly for debugging."
   [file]
-  (as-> {} ?m
-    (assoc ?m :core (sexp/rewrite* ::mznp/model file :file? true))
-    (intern-model-data ?m)
-    (assoc ?m :spec-types (model-types ?m))))
+  (-> {} 
+    (assoc  :core (sexp/rewrite* ::mznp/model file :file? true))
+    intern-model-data 
+    register-model-specs))
+
 
 
 
