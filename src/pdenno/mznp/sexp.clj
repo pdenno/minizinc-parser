@@ -22,7 +22,9 @@
      (when @debugging? (cl-format *out* "~A==> ~A~%" (util/nspaces (count @tags)) ~tag))
      (swap! tags #(conj % ~tag))
      (swap! locals #(into [{}] %))
-     (let [result# (do ~@body)]
+     (let [result# (try ~@body
+                        (catch Exception e# {:error (.getMessage e#)
+                                             :rewrite-error? true}))]
      (swap! tags #(-> % rest vec))
      (swap! locals #(-> % rest vec))
      (do (when @debugging? (cl-format *out* "~A<-- ~A returns ~S~%" (util/nspaces (count @tags)) ~tag result#))

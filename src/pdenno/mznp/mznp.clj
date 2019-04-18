@@ -253,8 +253,10 @@
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
        (if (:error ~pstate) ; Stop things
-         ~pstate 
-         ~@body)
+         ~pstate
+         (try ~@body
+              (catch Exception e# {:error (.getMessage e#)
+                                  :pstate ~pstate})))
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
        (do (when @debugging? (cl-format *out* "~%~A<-- ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))

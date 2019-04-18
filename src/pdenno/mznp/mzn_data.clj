@@ -106,8 +106,8 @@
 (defn user-eval
   "Do clojure eval in namespace mzn-user.
    If the sexp has unresolvable symbols, catch them and return :unresolved-symbol."
-  [form]
-  (println "eval form: " form)
+  [form & {:keys [verbose?]}]
+  (when verbose? (println "eval form: " form))
   (binding [*ns* (find-ns (symbol mznu-ns-string))]
     (eval form)))
 
@@ -152,11 +152,9 @@
    are allowed."
   [info id]
   (let [var-decl  (-> info :core :var-decls id)
-        mval      (:mval var-decl)
         base-type (-> var-decl :vartype :base-type)
-        obj       (cond (executable-form? info mval)       (user-eval mval),      ; set of int: Lines = 1..numLines;
-                        (executable-form? info base-type)  (user-eval base-type), ; array [J,W] of  0..n: T; OR array[x] of foo;
-                        :else nil)
+        obj       (when (executable-form? info base-type)
+                    (user-eval base-type)), ; array [J,W] of  0..n: T; OR array[x] of foo;
         user-obj  (when obj (if (coll? obj) (set obj) (-> obj list set)))]       ; make it a set (predicate function).
     (cond (set? user-obj)
           (register-spec-info
@@ -198,34 +196,49 @@
 
 (defmethod add-specs :int
   [info id]
-  (register-spec-info
-   info
-   (keyword mznu-ns-string (name id))
-   (s/spec* `(s/or
-              :not-populated nil?
-              :populated integer?))))
+  (let [mval (-> info :core :var-decls id :mval)
+        specific (when (executable-form? info mval)
+                   (user-eval mval))]      ; int: workforceSize = 300;
+    (register-spec-info
+     info
+     (keyword mznu-ns-string (name id))
+     (s/spec*
+      (if specific
+        `#(= % ~specific)
+        `(s/or :not-populated nil?
+               :populated integer?))))))
 
 (defmethod add-specs :float
   [info id]
-  (register-spec-info
-   info
-   (keyword mznu-ns-string (name id))
-   (s/spec* `(s/or
-              :not-populated nil?
-              :populated float?))))
+  (let [mval (-> info :core :var-decls id :mval)
+        specific (when (executable-form? info mval)
+                   (user-eval mval))]      ; int: workforceSize = 300;
+    (register-spec-info
+     info
+     (keyword mznu-ns-string (name id))
+     (s/spec*
+      (if specific
+        `#(= % ~specific)
+        `(s/or :not-populated nil?
+               :populated float?))))))
 
 (defmethod add-specs :mzn-set
   [info id]
-  (let [var-decl (-> info :core :var-decls id)]
+  (let [var-decl (-> info :core :var-decls id) ; set of int: Lines = 1..numLines;
+        mval (-> var-decl :mval)
+        specific (when (executable-form? info mval)
+                   (user-eval mval))]      ; int: workforceSize = 300;
     (as-> info ?info
-      (base-type-spec ?info id)
+      (cond-> ?info (not specific) (base-type-spec id))
       (register-spec-info
        ?info
        (keyword mznu-ns-string (name id))
-       (s/spec* `(s/or
-                  :not-populated nil?
-                  :populated (s/coll-of ~(:temp-model-spec ?info)
-                                        :kind set?)))))))
+       (s/spec*
+        (if specific
+          `#(= % ~specific)
+          `(s/or :not-populated nil?
+                 :populated (s/coll-of ~(:temp-model-spec ?info)
+                                       :kind set?))))))))
 (defn index-set-size
   "If the sym corresponds to a sym in mzn-user, and its var's value is a set, 
    get its size. Otherwise nil."
@@ -237,17 +250,22 @@
   [info id]
   (let [var-decl   (-> info :core :var-decls id)
         size-sym   (-> var-decl :vartype :index first)
-        size       (if (number? size-sym) size-sym (index-set-size size-sym))]
+        size       (if (number? size-sym) size-sym (index-set-size size-sym))
+        mval       (-> var-decl :mval)
+        specific   (when (executable-form? info mval)
+                     (user-eval mval))]      ; array[Jobs] of int: WeeksTillDue;
     (as-> info ?info
-      (base-type-spec info id)
+      (cond-> ?info (not specific) (base-type-spec id))
       (register-spec-info
        ?info
        (keyword mznu-ns-string (name id))
-       (s/spec* `(s/or
-                  :not-populated nil?
-                  :populated (s/coll-of ~(:temp-model-spec ?info)
-                                        :kind vector?
-                                        ~@(when size `(:count ~size)))))))))
+       (s/spec* 
+        (if specific
+          `#(= % ~specific)
+          `(s/or :not-populated nil?
+                 :populated (s/coll-of ~(:temp-model-spec ?info)
+                                       :kind vector?
+                                       ~@(when size `(:count ~size))))))))))
 
 (defmethod add-specs :mzn-2d-array
   [info id]
@@ -256,30 +274,37 @@
         size       (if (number? size-sym) size-sym (index-set-size size-sym))
         inner-sym  (-> var-decl :vartype :index second)
         inner-size (if (number? inner-sym) inner-sym (index-set-size inner-sym))
-        inner-key  (keyword mznu-ns-string (str (name id) "-inner"))]
-    (as-> info ?info
-      (base-type-spec ?info id)
+        inner-key  (keyword mznu-ns-string (str (name id) "-inner"))
+        mval       (-> var-decl :mval)
+        specific   (when (executable-form? info mval)
+                     (user-eval mval))]      ; array[Jobs] of int: WeeksTillDue;
+    (if specific
       (register-spec-info
-       ?info
-       inner-key
-       (s/spec* `(s/coll-of ~(:temp-model-spec ?info)
-                            :kind vector?
-                            ~@(when inner-size `(:count ~inner-size)))))
-      (register-spec-info
-       ?info
+       info
        (keyword mznu-ns-string (name id))
-       (s/spec* `(s/or
-                  :not-populated nil?
-                  :populated (s/coll-of
-                              ~inner-key
+       (s/spec* `#(= % ~specific)))
+      (as-> info ?info
+        (base-type-spec ?info id)
+        (register-spec-info
+         ?info
+         inner-key
+         (s/spec* `(s/coll-of ~(:temp-model-spec ?info)
                               :kind vector?
-                              ~@(when size `(:count ~size)))))))))
+                              ~@(when inner-size `(:count ~inner-size)))))
+        (register-spec-info
+         ?info
+         (keyword mznu-ns-string (name id))
+         (s/spec* `(s/or
+                    :not-populated nil?
+                    :populated (s/coll-of
+                                ~inner-key
+                                :kind vector?
+                                ~@(when size `(:count ~size))))))))))
 
 (s/def ::int integer?)
 (s/def ::float float?)
 (s/def ::string string?)
 (s/def ::anything (fn [_] true))
-
 
 ;;; ================== Utils ========================================
 (defn populated?
@@ -307,8 +332,3 @@
     (assoc  :core (sexp/rewrite* ::mznp/model file :file? true))
     intern-model-data 
     register-model-specs))
-
-
-
-
-  

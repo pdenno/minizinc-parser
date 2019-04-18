@@ -4,6 +4,7 @@
             [clojure.string       :as str]
             [clojure.set          :as sets]
             [clojure.spec-alpha2  :as s]
+            [clojure.walk         :as walk]
             [pdenno.mznp.mznp     :as mznp]
             [pdenno.mznp.mzn-fns  :as mznf :refer (forall sum aref)]
             [pdenno.mznp.mzn-data :as mznd :refer (uget)]
@@ -11,12 +12,12 @@
 
 ;;; Make this so that it defines a function that takes one or more missing vars
 ;;; (maybe just the decision variables???)
-(defn instrument
-  "ueval a constraint"
-  [info c-num]
-  (let [dvars (->> info :core :var-decls vals (filter :var?) (map :name) (map symbol))
-        body  (->  info :core :constraints (nth c-num))]
+(defn intern-constraint
+  "ueval a constraint, returning its function object. The c-num argument is its position
+   in the info object."
+  [info body]
+  (let [dvars (->> info :core :var-decls vals (filter :var?) (map :name) (map symbol))]
     (mznd/user-eval
-     `(def ~(symbol (str "constraint-" c-num))
-        (fn [~@dvars]
-          ~body)))))
+     `(fn [& {:keys [~@dvars]}]
+        ~body))))
+

@@ -70,7 +70,7 @@
              ::mznp/gen-call-expr
              "sum (j in Jobs) (if (LineOfJob[j] == lin) then WorkersOnJob[j,w1] else 0 endif)")
             '(mznf/sum  [[j Jobs]]   true
-                   (if  (== (mznf/aref LineOfJob j) lin) (mznf/aref WorkersOnJob j w1) 0))))
+                   (if  (= (mznf/aref LineOfJob j) lin) (mznf/aref WorkersOnJob j w1) 0))))
      
      (is (= (rewrite*
              ::mznp/constraint-item
@@ -88,24 +88,24 @@
                                                     (and
                                                      (mznf/assign (mznf/aref LineOfJob j) lin)
                                                      (not= (mznf/aref WorkersOnJob j w1) 0))))
-                                    (== w2
+                                    (= w2
                                         (mznf/max
                                          [[j Jobs] [w (mznf/range (+ w1 1) numWeeksScheduled)]]
                                          true
                                          (if
                                              (and
-                                              (== (mznf/aref LineOfJob j) lin)
+                                              (= (mznf/aref LineOfJob j) lin)
                                               (not= (mznf/aref WorkersOnJob j w) 0))
                                            w
                                            0))))
-                     (==
+                     (=
                       (mznf/sum  [[j Jobs]]  true
-                            (if  (== (mznf/aref LineOfJob j) lin)
+                            (if  (= (mznf/aref LineOfJob j) lin)
                               (mznf/aref WorkersOnJob j w1)
                               0))
                       (mznf/sum [[j Jobs]] true
                            (if
-                               (== (mznf/aref LineOfJob j) lin)
+                               (= (mznf/aref LineOfJob j) lin)
                              (mznf/aref WorkersOnJob j w2)
                              0)))))))))
 
