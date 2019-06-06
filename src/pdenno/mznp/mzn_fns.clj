@@ -54,6 +54,13 @@
           (when ~where (swap! current# (fn [arg#] ~body))))) ; arg not used.
      (deref current#)))
 
+(defmacro exists [args where body]
+  `(let [current# (atom false)]
+     (doseq ~(for-args args)
+       (when (-> current# deref not) ; POD doesn't exit early. 
+         (when ~where (swap! current# (fn [arg#] ~body))))) ; arg not used.
+     (deref current#)))
+
 (defmacro sum [args where body]
   `(let [current# (atom 0)]
      (doseq ~(for-args args)

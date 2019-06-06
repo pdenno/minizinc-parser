@@ -143,8 +143,8 @@
            (every? #(-> % uget nil? not) vars)))))
 
 ;;; ======================== Specs ====================================================
-(defn base-type-spec
-  "Sets :temp-model-spec in info object.
+(defn base-type-spec!
+  "Sets :temp-model-spec in info object and sometimes has the side-effect of registering a spec. 
    If the arg names a MiniZinc base type, return the corresponding spec (::int etc.).
    If the arg names a MiniZinc data object, then define a new spec for *elements* of the named
    data object (not the type of data object). The new spec is named :mznu/<Dataobject name>-elem.
@@ -197,28 +197,28 @@
 (defmethod add-specs :int
   [info id]
   (let [mval (-> info :core :var-decls id :mval)
-        specific (when (executable-form? info mval)
+        provided (when (executable-form? info mval)
                    (user-eval mval))]      ; int: workforceSize = 300;
     (register-spec-info
      info
      (keyword mznu-ns-string (name id))
      (s/spec*
-      (if specific
-        `#(= % ~specific)
+      (if provided
+        `#(= % ~provided)
         `(s/or :not-populated nil?
                :populated integer?))))))
 
 (defmethod add-specs :float
   [info id]
   (let [mval (-> info :core :var-decls id :mval)
-        specific (when (executable-form? info mval)
+        provided (when (executable-form? info mval)
                    (user-eval mval))]      ; int: workforceSize = 300;
     (register-spec-info
      info
      (keyword mznu-ns-string (name id))
      (s/spec*
-      (if specific
-        `#(= % ~specific)
+      (if provided
+        `#(= % ~provided)
         `(s/or :not-populated nil?
                :populated float?))))))
 
@@ -226,16 +226,16 @@
   [info id]
   (let [var-decl (-> info :core :var-decls id) ; set of int: Lines = 1..numLines;
         mval (-> var-decl :mval)
-        specific (when (executable-form? info mval)
+        provided (when (executable-form? info mval)
                    (user-eval mval))]      ; int: workforceSize = 300;
     (as-> info ?info
-      (cond-> ?info (not specific) (base-type-spec id))
+      (cond-> ?info (not provided) (base-type-spec! id))
       (register-spec-info
        ?info
        (keyword mznu-ns-string (name id))
        (s/spec*
-        (if specific
-          `#(= % ~specific)
+        (if provided
+          `#(= % ~provided)
           `(s/or :not-populated nil?
                  :populated (s/coll-of ~(:temp-model-spec ?info)
                                        :kind set?))))))))
@@ -252,16 +252,16 @@
         size-sym   (-> var-decl :vartype :index first)
         size       (if (number? size-sym) size-sym (index-set-size size-sym))
         mval       (-> var-decl :mval)
-        specific   (when (executable-form? info mval)
+        provided   (when (executable-form? info mval)
                      (user-eval mval))]      ; array[Jobs] of int: WeeksTillDue;
     (as-> info ?info
-      (cond-> ?info (not specific) (base-type-spec id))
+      (cond-> ?info (not provided) (base-type-spec! id)) ; This sets :temp-model-spec to a new spec
       (register-spec-info
        ?info
        (keyword mznu-ns-string (name id))
        (s/spec* 
-        (if specific
-          `#(= % ~specific)
+        (if provided
+          `#(= % ~provided)
           `(s/or :not-populated nil?
                  :populated (s/coll-of ~(:temp-model-spec ?info)
                                        :kind vector?
@@ -276,15 +276,15 @@
         inner-size (if (number? inner-sym) inner-sym (index-set-size inner-sym))
         inner-key  (keyword mznu-ns-string (str (name id) "-inner"))
         mval       (-> var-decl :mval)
-        specific   (when (executable-form? info mval)
+        provided   (when (executable-form? info mval)
                      (user-eval mval))]      ; array[Jobs] of int: WeeksTillDue;
-    (if specific
+    (if provided                  ; Either 'provided' exactly or...
       (register-spec-info
        info
        (keyword mznu-ns-string (name id))
-       (s/spec* `#(= % ~specific)))
-      (as-> info ?info
-        (base-type-spec ?info id)
+       (s/spec* `#(= % ~provided)))
+      (as-> info ?info            ; ...describe it on top of base-type-spec!. 
+        (base-type-spec! ?info id) ; This sets :temp-model-spec. 
         (register-spec-info
          ?info
          inner-key

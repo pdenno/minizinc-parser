@@ -33,6 +33,7 @@
 
       (is (parse-ok? ::mznp/generator             "w in Workers"))
       (is (parse-ok? ::mznp/gen-call-expr         "sum (w in Workers) (cost[w,doesTask[w]])"))
+      (is (parse-ok? ::mznp/gen-call-expr         "max (w1 in Weeks where TeamsOnJob[j,w1] != 0) (w1)"))
       (is (parse-ok? ::mznp/gen-call-expr         "forall (i,j in Domain where i<j) (noattack(i, j, queens[i], queens[j]))"))
       (is (parse-ok? ::mznp/call-expr             "noattack(i, j, queens[i], queens[j])"))
       (is (parse-ok? ::mznp/set-ti-expr-tail      "set of int"))
