@@ -4,6 +4,7 @@
             [clojure.string :as str]
             [clojure.set    :as sets]
             [clojure.spec.alpha :as s]
+            [clojure.tools.logging :as log]
             [pdenno.mznp.utils :as util]
             [pdenno.mznp.mzn-fns :refer :all :as mznf :exclude [range min max]]
             [pdenno.mznp.mznp :as mznp]))
@@ -71,7 +72,6 @@
   {\< '<, \* '*, \> '>, \- '-, \/ '/,  \+ '+, \= '=})
 
 (def mznp-constants #{:int :float :string})
-
 (defn rewrite [obj & keys]
   (cond (map? obj)                  (rewrite-meth (:type obj) obj keys)
         (string? obj)               obj
@@ -82,7 +82,8 @@
         (mznp2mznf-binops obj)      (mznp2mznf-binops obj)   ; Certain keywords are operators.
         (mznp-constants obj)        obj                      ; Certain keywords are constants.
         (seq? obj)                  obj ; already rewritten (POD worth tracking down?)
-        :else (throw (ex-info "Don't know how to rewrite obj." {:obj obj}))))
+        :else
+        (throw (ex-info "Don't know how to rewrite obj." {:obj obj}))))
 
 ;;;----------------------- Rewriting ---------------------------------------
 ;;;----------------------- Top-level ---------------------------------------
@@ -198,6 +199,17 @@
 
 (defrewrite :id-type [m]
   (rewrite m))
+
+(defrewrite :MznLetExpr [m] ; POD NYI!
+  (let [bvars (mapv #(rewrite %) (:items m))
+        expr  (-> m :expr rewrite)]
+    `(let ~(vec (mapcat #(list (:name %) (:mval %)) bvars))
+       ~expr)))
+
+(defrewrite nil [m]
+  (log/info "No defrewrite method for " m)
+  ;; Don't send back m. Other things get confused.
+  nil)
 
 ;;;============================== Precedence ordering ===================================================
 ;;;============================== form-bin-ops* = (-> reduce-bin-ops order-bin-ops) =====================
@@ -361,7 +373,6 @@
   [bvec]
   (let [bvec (mapv #(if (:bin-ops %) (-> % :bin-ops order-bin-ops) %) bvec) ; Recursively process primaries to args.
         info (bvec2info bvec)]
-    (reset! diag {:bvec bvec})
     (s/assert ::info info)
     (as-> info ?info
       (reduce (fn [info pval]

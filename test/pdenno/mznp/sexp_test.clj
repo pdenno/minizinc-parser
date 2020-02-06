@@ -18,6 +18,7 @@
 (deftest simple-sexp
   (testing "Test atomic rewriting tasks."
     (debug-off
+     (is (= (rewrite* ::mznp/if-then-else-expr "if a then b else c endif") '(if a b c)))
      (is (= (rewrite* ::mznp/expr "1") 1))
      (is (= (rewrite* ::mznp/expr "1 + x")   '(+ 1 x)))
      (is (= (rewrite* ::mznp/expr "(1 + x)") '(+ 1 x))))))
@@ -62,6 +63,18 @@
                :base-type (mznf/range 0 workforce_size)},
               :mval nil,
               :var? true})))))
+
+(deftest let-rewriting
+  (testing "Rewriting let expressions"
+    (debug-off
+     (is (= (rewrite* ::mznp/let-expr
+                      "let { var int: ActualEffort = (LastWeekOfRoute[r] - FirstWeekOfRoute[r] + 1)*TeamsOnRoute[r]*160; } in
+                       if (ActualEffort >= RouteEffort[r]) then 0 else (RouteEffort[r] - ActualEffort)*RoutePenalty[r] endif")
+            '(clojure.core/let ["ActualEffort" (* (* (+ (- (mznf/aref LastWeekOfRoute r) (mznf/aref FirstWeekOfRoute r)) 1)
+                                        (mznf/aref TeamsOnRoute r)) 160)]
+               (if (>= ActualEffort (mznf/aref RouteEffort r))
+                 0
+                 (* (- (mznf/aref RouteEffort r) ActualEffort) (mznf/aref RoutePenalty r)))))))))
 
 (deftest bigger-rewriting-tasks
   (testing "Big rewriting tasks"

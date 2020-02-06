@@ -4,5 +4,6 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure     "1.10.0"]
-                 [org.clojure/spec-alpha2 "0.2.177-SNAPSHOT"]]
+                 [org.clojure/spec-alpha2 "0.2.177-SNAPSHOT"]
+                 [org.clojure/tools.logging           "0.5.0"]]
   :repl-options {:init-ns pdenno.mznp.mznp})

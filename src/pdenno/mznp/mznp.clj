@@ -328,9 +328,9 @@
 ;;;========================= Implementation of Grammar ==========================
 (defn parse-list
   "Does parse parametrically for <open-char> [ <item> ','... ] <close-char>"
-  ([pstate char-open char-close]
-   (parse-list pstate char-open char-close ::expr))
-  ([pstate char-open char-close parse-tag]
+  ([pstate char-open char-close char-sep]
+   (parse-list pstate char-open char-close char-sep ::expr))
+  ([pstate char-open char-close char-sep parse-tag]
    (as-> pstate ?ps
      (eat-token ?ps char-open)
      (assoc-in ?ps [:local 0 :items] [])
@@ -348,13 +348,13 @@
            (update-in ?ps1 [:local 0 :items] conj (:result ?ps1))
            (if (contains? ?ps1 :error)
              ?ps1
-             (recur (cond-> ?ps1 (= \, (:tkn ?ps1)) (eat-token \,))))))))))
+             (recur (cond-> ?ps1 (= char-sep (:tkn ?ps1)) (eat-token char-sep))))))))))
 
 (defn parse-list-terminated
   "Does parse parametrically for '[ <item> ','... ] <terminator>'. Does not eat terminator."
-  ([pstate term-fn]
-   (parse-list-terminated pstate term-fn ::expr))
-  ([pstate term-fn parse-tag]
+  [pstate & {:keys [term-fn sep-fn parse-tag last-sep?] :or {sep-fn #(= \, %)
+                                                             term-fn #(= \] %)
+                                                             parse-tag ::expr}}]
    (as-> pstate ?ps
      (assoc-in ?ps [:local 0 :items] [])
      (loop [ps ?ps]
@@ -363,13 +363,14 @@
          (assoc ps :error {:while "parsing a list" :parse-tag parse-tag :line (:line ps)}),
          (term-fn (:tkn ps))
          (assoc ps :result (recall ps :items)),
+         ;(and last-sep? (sep-fn (:tkn ps)) (term-fn 
          :else
          (as-> ps ?ps
            (parse parse-tag ?ps)
            (update-in ?ps [:local 0 :items] conj (:result ?ps))
            (if (contains? ?ps :error)
              ?ps
-             (recur (cond-> ?ps (= \, (:tkn ?ps)) (eat-token \,))))))))))
+             (recur (cond-> ?ps (sep-fn (:tkn ?ps)) (eat-token #{\,\;})))))))))
 
 ;;; <builtin-num-bin-op> ::= + | - | * | / | div | mod
 (def builtin-num-bin-op #{\+ \- \* \/ :div :mod})
@@ -674,7 +675,7 @@
 (defparse ::params
   [pstate]
   (if (= \( (:tkn pstate))
-    (parse-list pstate \( \) ::ti-expr-and-id)
+    (parse-list pstate \( \) \, ::ti-expr-and-id)
     (assoc pstate :result [])))
 
 ;;; ;;; B.2. Type-Inst Expressions
@@ -755,7 +756,7 @@
   (cond (= (:tkn pstate) :array)
         (as-> pstate ?ps
           (eat-token ?ps :array)
-          (parse-list ?ps \[ \] ::ti-expr) 
+          (parse-list ?ps \[ \] \, ::ti-expr) 
           (store ?ps :ti-list)
           (eat-token ?ps :of)
           (parse ::ti-expr ?ps)
@@ -829,7 +830,7 @@
 ;;; <array-access-tail> ::= "[" <expr> "," ... "]"
 (defparse ::array-access-tail
   [pstate]
-  (parse-list pstate \[ \]))
+  (parse-list pstate \[ \] \,))
 
 (defrecord MznExprBinopTail [bin-op expr])
 ;;; POD I think the grammar is botched here. The [ ] should be BNF optional, not terminals!
@@ -1027,7 +1028,7 @@
 (defparse ::set-literal
   [pstate]
   (as-> pstate ?ps
-    (parse-list ?ps \{ \} ::expr)
+    (parse-list ?ps \{ \} \,)
     (assoc ?ps :result (->MznSetLiteral (:result ?ps)))))
 
 (defrecord MznSetComp [expr comp-tail])
@@ -1050,7 +1051,7 @@
 (defparse ::array-literal
   [pstate]
   (as-> pstate ?ps
-    (parse-list ?ps \[ \])
+    (parse-list ?ps \[ \] \,)
     (assoc ?ps :result (->MznArray (:result ?ps)))))
 
 ;;; [|10, 20, 13, |22, 11, 31, |14, 20, 18|] -- Note the extra commas!
@@ -1069,7 +1070,7 @@
     (assoc-in ?ps [:local 0 :sublists] [])
     (loop [ps ?ps]
       (as-> ps ?ps1
-        (parse-list-terminated ?ps1 #(or (= % \|) (= % :2d-array-close)))
+        (parse-list-terminated ?ps1 :term-fn #(or (= % \|) (= % :2d-array-close)))
         (update-in ?ps1 [:local 0 :sublists] conj (:result ?ps1))
         (if (= (:tkn ?ps1) :2d-array-close)
           (as-> ?ps1 ?ps2
@@ -1099,7 +1100,7 @@
     (store ?ps :id)
     (if (= \( (:tkn ?ps))
       (as-> ?ps ?ps1
-        (parse-list ?ps1 \( \))
+        (parse-list ?ps1 \( \) \,)
         (assoc ?ps1 :result (->MznAnnLiteral (recall ?ps1 :id) (:result ?ps1))))
       (assoc ?ps :result (->MznAnnLiteral (recall ?ps :id) [])))))
 
@@ -1151,20 +1152,23 @@
     (eat-token ?ps #(or (builtin-op %) (instance? MznId %)))
     (if (= \( (:tkn ?ps))
       (as-> ?ps ?ps1
-        (parse-list ?ps1 \( \))
+        (parse-list ?ps1 \( \) \,)
         (assoc ?ps1 :result (->MznCallExpr (recall ?ps1 :op) (:result ?ps1))))
       (assoc ?ps :result (->MznCallExpr (recall ?ps :op) nil)))))
 
+(def diag (atom nil))
+
+;;(parse-list-terminated ?ps #(= :in %) ::let-item)
 (defrecord MznLetExpr [items expr])
 ;;; <let-expr> ::= "let" { <let-item>; ... } "in" <expr>
 (defparse ::let-expr
   [pstate]
   (as-> pstate ?ps
     (eat-token ?ps :let)
-    (parse-list-terminated ?ps #(= :in %) ::let-item)
+    (parse-list ?ps \{ \} \; ::let-item) 
     (store ?ps :items)
     (eat-token ?ps :in)
-    (parse ::expr ?ps)
+    (parse ::expr ?ps)   
     (assoc ?ps :result (->MznLetExpr (recall ?ps :items) (:result ?ps)))))
  
 ;;; <let-item> ::= <var-decl-item> | <constraint-item>
@@ -1179,7 +1183,7 @@
 (defparse ::comp-tail
   [pstate]
   (as-> pstate ?ps
-    (parse-list-terminated ?ps #(#{:where \) \]} %) ::generator)
+    (parse-list-terminated ?ps :term-fn #(#{:where \) \]} %) :parse-tag ::generator)
     (store ?ps :generators)
     (if (= :where (:tkn ?ps))
       (as-> ?ps ?ps1
@@ -1196,7 +1200,7 @@
 (defparse ::generator
   [pstate]
   (as-> pstate ?ps
-    (parse-list-terminated ?ps  #(= :in %) ::ident)
+    (parse-list-terminated ?ps  :term-fn #(= :in %) :parse-tag ::ident)
     (store ?ps :ids)
     (eat-token ?ps :in)
     (parse ::expr ?ps)
