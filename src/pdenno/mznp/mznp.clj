@@ -944,7 +944,7 @@
           (= tkn :if)                                                 ; <if-then-else-expr>
           (parse ::if-then-else-expr pstate),                          
           (= tkn :let)                                                ; <let-expr>
-          (parse ::let-expr),                                          
+          (parse ::let-expr pstate),                                          
           (gen-call-expr? tvec)     ; POD I'm making this up          ; <gen-call-expr> e.g. "sum (w in Workers) (cost[w,doesTask[w]])"
           (parse ::gen-call-expr pstate)                              ;                       OR forall    
           (or (builtin-op tkn)                                        ; <call-expr>
@@ -1156,8 +1156,6 @@
         (assoc ?ps1 :result (->MznCallExpr (recall ?ps1 :op) (:result ?ps1))))
       (assoc ?ps :result (->MznCallExpr (recall ?ps :op) nil)))))
 
-(def diag (atom nil))
-
 ;;(parse-list-terminated ?ps #(= :in %) ::let-item)
 (defrecord MznLetExpr [items expr])
 ;;; <let-expr> ::= "let" { <let-item>; ... } "in" <expr>
@@ -1215,7 +1213,11 @@
 ;;; https://www.minizinc.org/doc-2.2.0/en/spec.html#spec-generator-call-expressions
 
 ;;; 2019-01-21: gen-call-expr must also include things like:
-;;; "sum (w in Workers) (cost[w,doesTask[w]])"  (See pg 23 of the tutorial). 
+;;; "sum (w in Workers) (cost[w,doesTask[w]])"  (See pg 23 of the tutorial).
+;;; 2020-02006: It also must handle
+;;;;   sum (r in Route)
+;;;    (let { var int: ActualEffort = (LastWeekOfRoute[r] - FirstWeekOfRoute[r] + 1)*TeamsOnRoute[r]*160; } in
+;;;    if (ActualEffort >= RouteEffort[r]) then 0 else (RouteEffort[r] - ActualEffort)*RoutePenalty[r] endif)"
 (defrecord MznGenCallExpr [gen-call-op generators where body])
 
 (s/def ::gen-call-expr
