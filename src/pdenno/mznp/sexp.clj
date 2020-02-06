@@ -200,7 +200,7 @@
 (defrewrite :id-type [m]
   (rewrite m))
 
-(defrewrite :MznLetExpr [m] ; POD NYI!
+(defrewrite :MznLetExpr [m]
   (let [bvars (mapv #(rewrite %) (:items m))
         expr  (-> m :expr rewrite)]
     `(let ~(vec (mapcat #(list (:name %) (:mval %)) bvars))
