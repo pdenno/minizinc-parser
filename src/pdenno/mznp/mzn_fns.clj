@@ -7,6 +7,22 @@
 
 (alias 'c 'clojure.core)
 
+(def built-in-globals
+  #{"all_different"  "all_disjoint" "all_equal" "nvalue" "symmetric_all_different"
+    "lex_greater" "lex_greatereq" "lex_less" "lex_lesseq" "seq_precede_chain"
+    "strict_lex2" "value_precede" "value_precede_chain" "arg_sort" "decreasing"
+    "increasing" "sort" "int_set_channel" "inverse" "inverse_set" "link_set_to_booleans"
+    "among" "at_least" "at_most" "at_most1" "count" "count_eq" "count_geq" "count_gt"
+    "count_leq" "count_lt" "count_neq" "distribute" "exactly" "global_cardinality"
+    "global_cardinality_closed" "global_cardinality_low_up" "global_cardinality_low_up_closed"
+    "bin_packing" "bin_packing_capa" "bin_packing_load" "diffn" "diffn_nonstrict"
+    "diffn_nonstrict_k" "geost" "geost_bb" "geost_nonoverlap_k" "geost_smallest_bb" "knapsack"
+    "alternative" "cumulative" "disjunctive" "disjunctive_strict" "span" "bounded_dpath"
+    "bounded_path" "connected" "d_weighted_spanning_tree" "dag" "dconnected" "dpath"
+    "dreachable" "dsteiner" "dtree" "path" "reachable" "steiner" "subgraph" "tree"
+    "weighted_spanning_tree" "cost_mdd" "cost_regular" "mdd" "regular" "regular_nfa"
+    "table"})
+
 (defn range [start stop]
   "Create a clojure vector of values specifed by the MiniZinc range args."
   (vec (c/range start (inc stop))))
