@@ -26,7 +26,7 @@
 (def mznu-ns-string "pdenno.mznp.mzn-user")
 (def mznu-ns-symbol 'pdenno.mznp.mzn-user)
 
-;;; ToDo: Make alldifferent a spec!
+;;; ToDo: Make all_different a spec!
 
 (defn literal?
   "Return true if the data is literal"
@@ -51,6 +51,7 @@
   (cond (symbol? form) (swap! collect #(conj % (keyword form)))
         (literal? form) :whatever
         (seq? form) (doall (map vars-used! (rest form)))))
+
 (defn vars-used [form & {:keys [consider-only]}]
   "Return the set of variables (any symbol actually) used in the form.
    If :consider-only is provided, it should be a set of uninterned symbols."

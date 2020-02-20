@@ -40,7 +40,7 @@
     "par", "predicate", "record", "satisfy", "set", "solve", "string", "subset", "superset",
     "symdiff", "test", "then", "true", "tuple", "type", "union", "var", "where", "xor"
     ;; global constraints  --  https://github.com/MiniZinc/libminizinc/tree/master/share/minizinc/std ... many more!
-    "alldifferent", "all_equal", "all_equal_int", 
+    "all_different", "all_equal", "all_equal_int", 
     ;; builtins.arithmetic -- https://github.com/MiniZinc/libminizinc/blob/master/share/minizinc/std/builtins.mzn ... many more!
     "sum", "product", "min", "max", "arg_min", "arg_max", "abs", "pow"   
     ;; builtins.logic
@@ -398,7 +398,20 @@
 ;;; POD This is not complete!
 (def builtin-quantifier #{:forall :exists :xorall :clause})
 
-(def builtin-constraint #{:alldifferent :all-equal})
+(def builtin-constraint #{:all_different :all_disjoint :all_equal :nvalue
+    :symmetric_all_different :lex_greater :lex_greatereq :lex_less :lex_lesseq
+    :seq_precede_chain :strict_lex2 :value_precede :value_precede_chain :arg_sort :decreasing
+    :increasing :sort :int_set_channel :inverse :inverse_set :link_set_to_booleans
+    :among :at_least :at_most :at_most1 :count :count_eq :count_geq :count_gt
+    :count_leq :count_lt :count_neq :distribute :exactly :global_cardinality
+    :global_cardinality_closed :global_cardinality_low_up :global_cardinality_low_up_closed
+    :bin_packing :bin_packing_capa :bin_packing_load :diffn :diffn_nonstrict
+    :diffn_nonstrict_k :geost :geost_bb :geost_nonoverlap_k :geost_smallest_bb :knapsack
+    :alternative :cumulative :disjunctive :disjunctive_strict :span :bounded_dpath
+    :bounded_path :connected :d_weighted_spanning_tree :dag :dconnected :dpath
+    :dreachable :dsteiner :dtree :path :reachable :steiner :subgraph :tree
+    :weighted_spanning_tree :cost_mdd :cost_regular :mdd :regular :regular_nfa
+    :table}) 
 
 ;;; <builtin-op> ::= <builtin-bin-op> | <builtin-un-op>
 (def builtin-op
@@ -1143,7 +1156,7 @@
 ;;; This isn't picked up for e.g. noattack(i, j, queens[i], queens[j]). I suppose noattack is a 
 (defrecord MznCallExpr [op args])
 ;;; <call-expr> ::= <ident-or-quoted-op> [ "(" <expr>, ... ")" ]
-;;; This is called for e.g. constraint alldifferent(foo); :alldifferent is a builtin-op
+;;; This is called for e.g. constraint all_different(foo); :all_different is a builtin-op
 ;;; POD So I'm doing it different!
 (defparse ::call-expr
   [pstate]

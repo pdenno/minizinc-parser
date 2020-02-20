@@ -1,5 +1,5 @@
 {
- :constraints [(mznf/alldifferent DoesTask)],
+ :constraints [(mznf/all_different DoesTask)],
  :var-decls
  {:n {:name "n", :vartype {:datatype :int}, :mval 3},
   :Workers

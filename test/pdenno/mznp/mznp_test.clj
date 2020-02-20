@@ -9,10 +9,10 @@
   (testing "type returned from parsing a short-ish string."
     (let [db? @debugging?]
       (reset! debugging? false)
-      (is (parse-ok? ::mznp/model                 "include \"alldifferent.mzn\"; int: i = 0;"))
+      (is (parse-ok? ::mznp/model                 "include \"all_different.mzn\"; int: i = 0;"))
       (is (parse-ok? ::mznp/model                 "var 0..total: end; % Hello, world! \n constraint end == 0; "))
       
-      (is (parse-ok? ::mznp/include-item          "include \"alldifferent.mzn\""))
+      (is (parse-ok? ::mznp/include-item          "include \"all_different.mzn\""))
       (is (parse-ok? ::mznp/var-decl-item         "int: n = 3"))
       (is (parse-ok? ::mznp/var-decl-item         "set of int: Workers = 1..n"))
       (is (parse-ok? ::mznp/var-decl-item         "array[W, T] of int: cost = [|20, 13, |11, 31, |20, 18|]"))
@@ -21,7 +21,7 @@
       (is (parse-ok? ::mznp/var-decl-item         "array [Jobs,Weeks] of var 1..workforce_size: WorkersOnJob"))
       (is (parse-ok? ::mznp/var-decl-item         "int: digs = ceil(log(10.0,int2float(total)))"))
       (is (parse-ok? ::mznp/var-decl-item         "array[Resources] of var 0..max(capacity): used"))
-      (is (parse-ok? ::mznp/constraint-item       "constraint alldifferent(doesTask)"))
+      (is (parse-ok? ::mznp/constraint-item       "constraint all_different(doesTask)"))
       (is (parse-ok? ::mznp/solve-item            "solve minimize sum (w in Workers) (cost[w,doesTask[w]])"))
       (is (parse-ok? ::mznp/solve-item            "solve maximize sum (j in Jobs) (endWeek[j] - startWeek[j])"))
       (is (parse-ok? ::mznp/solve-item            "solve :: set_search(foo) satisfy"))

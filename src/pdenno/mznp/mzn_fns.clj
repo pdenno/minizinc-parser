@@ -43,7 +43,7 @@
    ;(println "array = " array "ix1 = " ix1 "ix2 = " ix2)
    (nth (nth array (dec ix1)) (dec ix2))))
 
-(defn alldifferent
+(defn all_different
   "Returns true if all values are different."
   [vals]
   (= (count vals) (-> vals distinct count)))
