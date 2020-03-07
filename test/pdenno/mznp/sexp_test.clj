@@ -21,7 +21,11 @@
      (is (= (rewrite* ::mznp/if-then-else-expr "if a then b else c endif") '(if a b c)))
      (is (= (rewrite* ::mznp/expr "1") 1))
      (is (= (rewrite* ::mznp/expr "1 + x")   '(+ 1 x)))
-     (is (= (rewrite* ::mznp/expr "(1 + x)") '(+ 1 x))))))
+     (is (= (rewrite* ::mznp/expr "(1 + x)") '(+ 1 x)))
+     (is (= (rewrite*
+             ::mznp/expr
+             "if (makeRatio < 0.1) then 10 elseif (makeRatio < 0.5) then 6 else 0 endif")
+            '(clojure.core/cond (< makeRatio 0.1) 10 (< makeRatio 0.5) 6 :else 0))))))
 
 (deftest reducing-bin-ops
   (testing "Test atomic rewriting tasks."

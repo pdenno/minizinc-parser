@@ -32,25 +32,54 @@
 (def debugging? (atom false)) 
 
 ;;; ============ Tokenizer ===============================================================
-;;; POD Could add to this from library...
-(def  mzn-keywords
-  #{"ann", "annotation", "any", "array", "bool", "case", "constraint", "diff", "div", "else",
+;;; POD All this lexer stuff could be integrated with the :builtin stuff of the parser!
+(def mzn-keywords-basic
+  #{"ann", "annotation", "any", "array", "bool", "case", "constraint", "else",
     "elseif", "endif", "enum", "false", "float", "function", "if", "in", "include", "int",
-    "intersect", "let", "list", "maximize", "minimize", "mod", "not", "of", "op", "opt", "output", ; website shows "opt"
-    "par", "predicate", "record", "satisfy", "set", "solve", "string", "subset", "superset",
-    "symdiff", "test", "then", "true", "tuple", "type", "union", "var", "where", "xor"
-    ;; global constraints  --  https://github.com/MiniZinc/libminizinc/tree/master/share/minizinc/std ... many more!
-    "all_different", "all_equal", "all_equal_int", 
-    ;; builtins.arithmetic -- https://github.com/MiniZinc/libminizinc/blob/master/share/minizinc/std/builtins.mzn ... many more!
-    "sum", "product", "min", "max", "arg_min", "arg_max", "abs", "pow"   
-    ;; builtins.logic
-    "forall", "exists", "xorall", "clause", "iffall"})
+    "let", "list", "maximize", "minimize", "not", "of", "op", "opt", "output", ; website shows "opt"
+    "par", "predicate", "record", "satisfy", "set", "solve", "string", 
+    "test", "then", "true", "tuple", "type", "var", "where", "trace", "trace_stdout"})
+
+;;; builtins.arithmetic -- https://github.com/MiniZinc/libminizinc/blob/master/share/minizinc/std/builtins.mzn 
+;;; You get more than this if you run the function get-operators in mznp_test.clj.
+(def mzn-keywords-arithmetic ; POD 
+  #{"abs" "acos" "acosh" "arg_max" "arg_min" "array1d" "array2set" "array_intersect" "array_union" "asin" "asinh"
+    "assert" "atan" "atanh" "bool2int" "card" "ceil" "cos" "cosh" "diff" "div" "div_mt" "div_t" "element" "element_mt"
+    "element_t" "enum_next" "enum_prev" "exp" "fldiv_mt" "fldiv_t" "floor" "int2float" "intersect" "lin_exp" "ln"
+    "log10" "log2" "max" "max_t" "min" "min_t" "mod" "mod_mt" "mod_t" "pow" "product" "product_rec" "sin" "sinh"
+    "sqrt" "sqrt_t" "subset" "sum" "superset" "symdiff" "tan" "tanh" "to_enum" "union" "xor"})
+
+;;; global constraints  --  https://github.com/MiniZinc/libminizinc/tree/master/share/minizinc/std 
+(def mzn-keywords-global-constraint
+  #{"all_different" "all_disjoint" "all_equal" "nvalue"
+    "symmetric_all_different" "lex_greater" "lex_greatereq" "lex_less" "lex_lesseq"
+    "seq_precede_chain" "strict_lex2" "value_precede" "value_precede_chain" "arg_sort" "decreasing"
+    "increasing" "sort" "int_set_channel" "inverse" "inverse_set" "link_set_to_booleans"
+    "among" "at_least" "at_most" "at_most1" "count" "count_eq" "count_geq" "count_gt"
+    "count_leq" "count_lt" "count_neq" "distribute" "exactly" "global_cardinality"
+    "global_cardinality_closed" "global_cardinality_low_up" "global_cardinality_low_up_closed"
+    "bin_packing" "bin_packing_capa" "bin_packing_load" "diffn" "diffn_nonstrict"
+    "diffn_nonstrict_k" "geost" "geost_bb" "geost_nonoverlap_k" "geost_smallest_bb" "knapsack"
+    "alternative" "cumulative" "disjunctive" "disjunctive_strict" "span" "bounded_dpath"
+    "bounded_path" "connected" "d_weighted_spanning_tree" "dag" "dconnected" "dpath"
+    "dreachable" "dsteiner" "dtree" "path" "reachable" "steiner" "subgraph" "tree"
+    "weighted_spanning_tree" "cost_mdd" "cost_regular" "mdd" "regular" "regular_nfa"
+    "table"}) 
+
+;; builtins.logic
+(def mzn-keywords-logic
+  #{"forall", "exists", "xorall", "clause", "iffall"})
+
+;;; POD someday check for no overlaps.
+;;; Don't put global constraints here, "tree", "knapsack" etc. make nice variables!
+(def mzn-keywords
+  (sets/union mzn-keywords-basic mzn-keywords-arithmetic mzn-keywords-logic))
 
 (def ^:private mzn-long-syntactic ; chars that COULD start a multi-character syntactic elements. 
   #{\., \,, \\, \/, \<, \>, \=, \!, \+, \|, \[, \], \: \-})
 
 (def ^:private mzn-syntactic ; chars that are valid tokens in themselves. 
-  #{\[, \], \(, \), \{, \}, \=, \^, \,, \:, \;, \|, \*, \+, \-, \<, \>}) ; not \_
+  #{\[, \], \(, \), \{, \}, \=, \^, \,, \:, \;, \|, \*, \+, \/, \-, \<, \>}) ; not \_
 
 ;;; POD multi-line comment (e.g. /* ... */ would go in here, sort of. 
 (defn read-long-syntactic [st ws]
@@ -393,25 +422,12 @@
 (defparse-auto :builtin-num-bin-op builtin-un-op)
 
 ;;;-------------------Library Builtins --(these should be in mzn-keywords too)----
-(def builtin-arithmetic-op #{:sum, :product, :min, :max, :arg_min, :arg_max, :abs, :pow})
+(def builtin-arithmetic-op (set (->> mzn-keywords-arithmetic (map keyword))))
 
 ;;; POD This is not complete!
-(def builtin-quantifier #{:forall :exists :xorall :clause})
+(def builtin-quantifier (set (->> mzn-keywords-logic (map keyword))))
 
-(def builtin-constraint #{:all_different :all_disjoint :all_equal :nvalue
-    :symmetric_all_different :lex_greater :lex_greatereq :lex_less :lex_lesseq
-    :seq_precede_chain :strict_lex2 :value_precede :value_precede_chain :arg_sort :decreasing
-    :increasing :sort :int_set_channel :inverse :inverse_set :link_set_to_booleans
-    :among :at_least :at_most :at_most1 :count :count_eq :count_geq :count_gt
-    :count_leq :count_lt :count_neq :distribute :exactly :global_cardinality
-    :global_cardinality_closed :global_cardinality_low_up :global_cardinality_low_up_closed
-    :bin_packing :bin_packing_capa :bin_packing_load :diffn :diffn_nonstrict
-    :diffn_nonstrict_k :geost :geost_bb :geost_nonoverlap_k :geost_smallest_bb :knapsack
-    :alternative :cumulative :disjunctive :disjunctive_strict :span :bounded_dpath
-    :bounded_path :connected :d_weighted_spanning_tree :dag :dconnected :dpath
-    :dreachable :dsteiner :dtree :path :reachable :steiner :subgraph :tree
-    :weighted_spanning_tree :cost_mdd :cost_regular :mdd :regular :regular_nfa
-    :table}) 
+(def builtin-constraint (set (->> mzn-keywords-global-constraint (map keyword))))
 
 ;;; <builtin-op> ::= <builtin-bin-op> | <builtin-un-op>
 (def builtin-op
@@ -1117,8 +1133,8 @@
         (assoc ?ps1 :result (->MznAnnLiteral (recall ?ps1 :id) (:result ?ps1))))
       (assoc ?ps :result (->MznAnnLiteral (recall ?ps :id) [])))))
 
-(defrecord MznElseIf [then else])
-(defrecord MznIfExpr [condition then else elseif])
+(defrecord MznElseIf [cond then])
+(defrecord MznIfExpr [condition then elseif else])
 ;;; <if-then-else-expr> ::= "if" <expr> "then" <expr> ("elseif" <expr> "then" <expr>)* "else" <expr> "endif"
 (defparse ::if-then-else-expr
   [pstate]
@@ -1128,26 +1144,25 @@
     (store ?ps :condition)
     (eat-token ?ps :then)
     (parse ::expr ?ps)
-    (assoc-in ?ps [:local 0 :elifs] [])
+    (assoc-in ?ps [:local 0 :elseifs] [])
     (store ?ps :then)
     (if (= :elseif (:tkn ?ps))
-      (loop [ps ?ps]
-        (as-> ?ps ?ps1
+      (loop [x ?ps]
+        (as-> x ?ps1
           (eat-token ?ps1 :elseif)
-          (parse ::expr ?ps1)
-          (store ?ps1 :elif-cond)
+          (parse ::expr ?ps1)       ; cond
+          (store ?ps1 :elseif-cond)
           (eat-token ?ps1 :then)
-          (parse ::expr ?ps1)
-          (update-in ?ps1 [:local 0 :elifs] conj (->MznElseIf (recall ?ps1 :elif-cond) (:result ?ps)))
-          (if (not= :elseif (:tkn ?ps1))
-            ?ps1
-            (recur ?ps1))))
-      (eat-token ?ps :else))
+          (parse ::expr ?ps1)       ; then
+          (update-in ?ps1 [:local 0 :elseifs] conj (->MznElseIf (recall ?ps1 :elseif-cond) (:result ?ps1)))
+          (if (= :elseif (:tkn ?ps1)) (recur ?ps1) ?ps1)))
+      ?ps)
+    (eat-token ?ps :else)
     (parse ::expr ?ps)
     (assoc ?ps :result (->MznIfExpr (recall ?ps :condition)
                                     (recall ?ps :then)
-                                    (:result ?ps)
-                                    (recall ?ps :elseif)))
+                                    (recall ?ps :elseifs)
+                                    (:result ?ps)))
     (eat-token ?ps :endif)))
 
 (s/def ::call-expr

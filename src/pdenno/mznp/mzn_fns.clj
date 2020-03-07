@@ -27,20 +27,14 @@
   "Create a clojure vector of values specifed by the MiniZinc range args."
   (vec (c/range start (inc stop))))
 
-#_(defn aref
-  "Return the value of the MiniZinc array at the argument indexes."
-  [array & indexes]
-    (reduce (fn [a ix] (nth a ix)) array indexes))
-
-;;; POD It was probably wrong to use arrays for arrays. Because index sets can
+;;; POD It was probably wrong to use arrays for arrays. Because indexing can
 ;;;     be anything, I should have used maps. But for now.
+;;; 2020: Really about the indexing???
 (defn aref
   "Return the value of the MiniZinc array at the argument indexes."
   ([array ix]
-   ;(println "array = " array "ix = " ix)
    (nth array (dec ix)))
   ([array ix1 ix2]
-   ;(println "array = " array "ix1 = " ix1 "ix2 = " ix2)
    (nth (nth array (dec ix1)) (dec ix2))))
 
 (defn all_different

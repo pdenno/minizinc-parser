@@ -10,7 +10,7 @@ array[Workers, Tasks] of int: Cost = [|10, 20, 13,
 
 array[Workers] of var Tasks: DoesTask; 
 
-constraint alldifferent(DoesTask); % everyone does a task.
+constraint all_different(DoesTask); % everyone does a task.
 
 solve minimize sum (w in Workers) (Cost[w,DoesTask[w]]);
 

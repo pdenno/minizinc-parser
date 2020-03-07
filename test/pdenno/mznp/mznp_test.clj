@@ -30,6 +30,7 @@
       (is (parse-ok? ::mznp/output-item           "output [\"end = \", show(end), \"\\n\"] ++
        [ show_int(digs,s[i,j]) ++ \" \" ++ if j == tasks then \"\\n\" else \"\" endif | i in 1..jobs, j in 1..tasks ]"))
       (is (parse-ok? ::mznp/expr                  "true"))
+      (is (parse-ok? ::mznp/expr                  "x / 3"))
 
       (is (parse-ok? ::mznp/generator             "w in Workers"))
       (is (parse-ok? ::mznp/gen-call-expr         "sum (w in Workers) (cost[w,doesTask[w]])"))
@@ -77,3 +78,16 @@
                                    builtin-un-op
                                    builtin-arithmetic-op
                                    builtin-logic-op)))))
+
+;;; This is used to find new builtins from Mzn source code. 
+#_(defn get-operators []
+  "Throwaway to collect operators from builtins.mzn"
+  (let [pattern (re-pattern #"^function\s+.+\s+(\')?([\w,\d,\_]+)(\')?\s*\(.*$")]
+    (->> (slurp "data/minizinc-git/builtins.mzn")
+         clojure.string/split-lines
+         (filter #(re-matches pattern %))
+         (map    #(re-matches pattern %))
+         (map #(nth % 2))
+         distinct
+         sort)))
+

@@ -153,9 +153,19 @@
           :else (throw (ex-info "Some other tail" {:tail (:tail ?m)})))))
 
 (defrewrite :MznIfExpr [m]
-  `(if ~(-> m :condition rewrite)
-     ~(-> m :then rewrite)
-     ~(-> m :else rewrite)))
+  (if (-> m :elseif not-empty)
+    `(cond ~(-> m :condition rewrite)
+           ~(-> m :then rewrite)
+           ~@(reduce (fn [conds elseif]
+                       (-> conds
+                           (conj (-> elseif :cond rewrite))
+                           (conj (-> elseif :then rewrite))))
+                     []
+                     (:elseif m))
+           :else ~(-> m :else rewrite))
+    `(if ~(-> m :condition rewrite)
+       ~(-> m :then rewrite)
+       ~(-> m :else rewrite))))
 
 (defrewrite :MznExprBinopTail [m]
   {:op    (-> m :bin-op rewrite)
@@ -168,8 +178,8 @@
     (-> m :head rewrite)))
 
 (defrewrite :MznCallExpr [m]
-   `(~(if (-> m :op mznp/builtin-constraint)
-        (symbol "mznf" (-> m :op name str))
+   `(~(if (-> m :op :name keyword mznp/builtin-constraint)
+        (symbol "mznf" (-> m :op :name))
         (:op m))  ; NYI
      ~@(map rewrite (:args m))))
 
