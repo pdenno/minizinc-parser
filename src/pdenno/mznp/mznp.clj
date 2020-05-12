@@ -487,6 +487,7 @@
           (= tkn :test)                   (parse ::test-item pstate),
           (= tkn :function)               (parse ::function-item pstate),
           (= tkn :ann)                    (parse ::annotation-item pstate) ; I don't think "annotation" is a keyword.
+          (= tkn :enum)                   (parse ::enum-item pstate)
           (and (instance? MznId tkn) (= tkn2 \=)) (parse ::assign-item pstate),
           (var-decl? pstate)              (parse ::var-decl-item pstate),
           :else (assoc pstate :error {:expected "a MZn item" :got (:tkn pstate) :in :item :line (:line pstate)}))))
@@ -528,6 +529,26 @@
     (parse ::string-literal ?ps)
     (store ?ps :model-part)
     (assoc ?ps :result (->MznInclude (recall ?ps :model-part)))))
+
+(defrecord MznEnum [name cases])
+(defparse ::enum-item
+  [pstate]
+  (as-> pstate ?ps
+    (eat-token ?ps :enum)
+    (parse ::ident ?ps)
+    (store ?ps :name)
+    (parse ::annotations ?ps)
+    (if (= (:tkn ?ps) \=)
+      (as-> ?ps ?ps1
+        (eat-token ?ps1)
+        (parse ::enum-cases ?ps1)
+        (store ?ps1 :cases))
+      (store ?ps :cases nil))
+    (assoc ?ps :result (->MznEnum (recall ?ps :name) (recall ?ps :cases)))))
+
+(defparse ::enum-cases
+  [pstate]
+  (parse-list pstate \{ \} \,))
 
 ;;; <assign-item> ::= <ident> = <expr>
 (defrecord MznAssignment [lhs rhs])

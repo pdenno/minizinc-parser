@@ -92,7 +92,7 @@
             (let [type (:type item)]
               (cond (= type :MznConstraint)
                     (update res :constraints conj (rewrite item))
-                    (= type :MznVarDecl)
+                    (or (= type :MznVarDecl) (= type :MznEnum))
                     (let [vd (rewrite item)]
                       (assoc-in res [:var-decls (-> vd :name keyword)] vd))
                     (= type :MznSolve)
@@ -110,6 +110,15 @@
              :mval (-> m :rhs rewrite)}]
     (cond-> res
       (:var? m) (assoc :var? true))))
+
+(defrewrite :MznEnum [m]
+  (let [res {:name (-> m :name :name)
+             :vartype {:datatype :mzn-enum}
+             :mval (not-empty (->> m :cases (mapv #(-> % :atom :head :name))))}
+        ok? (== (-> res :symbols count) (-> res :symbols set count))]
+   (if ok?
+      res
+      (assoc  res :error! "Duplicate symbols in enum definition."))))
 
 (defrewrite :MznSolve [m]
   {:action (:action m)

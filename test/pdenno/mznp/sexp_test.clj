@@ -66,7 +66,9 @@
                :index [Jobs Weeks],
                :base-type (mznf/range 0 workforce_size)},
               :mval nil,
-              :var? true})))))
+              :var? true}))
+     (is (= (rewrite* ::mznp/item "enum ProductType = {A,B,C}")
+            {:name "ProductType", :datatype {:vartype :mzn-enum}, :mval ["A" "B" "C"]})))))
 
 (deftest let-rewriting
   (testing "Rewriting let expressions"
@@ -130,4 +132,4 @@
   (testing "Rewriting of whole models"
     (debug-off
      (is (= (rewrite* ::mznp/model "data/assignment.mzn" :file? true)
-            (read-string (slurp "data/output/assignment.clj")))))))
+            (read-string (slurp "data/output/assignment.edn")))))))
