@@ -1,12 +1,12 @@
-(ns minizinc.mznp.sexp
+(ns pdenno.mznp.sexp
   "Simplify the parsed structure using s-expressions in some places."
   (:require [clojure.pprint :refer (cl-format pprint)]
             [clojure.string :as str]
             [clojure.set    :as sets]
             [clojure.spec.alpha :as s]
-            [minizinc.mznp.utils :as util]
-            [minizinc.mznp.mzn-fns :refer :all :as mznf :exclude [range min max]]
-            [minizinc.mznp.mznp :as mznp]
+            [pdenno.mznp.utils :as util]
+            [pdenno.mznp.mzn-fns :refer :all :as mznf :exclude [range min max]]
+            [pdenno.mznp.mznp :as mznp]
             [taoensso.timbre :as log]))
 
 ;;; The functions that end in a * (rewrite* and form-bin-ops*) are 'toplevel' and good for testing. 

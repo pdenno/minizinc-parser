@@ -1,10 +1,10 @@
-(ns minizinc.mznp.sexp-test
+(ns pdenno.mznp.sexp-test
   "Rewrite the mznp parsed structure to 'executable' EDN."
   (:require [clojure.test :refer :all]
             [clojure.string :as str]
             [clojure.set    :as sets]
-            [minizinc.mznp.mznp :as mznp]
-            [minizinc.mznp.sexp :refer :all]))
+            [pdenno.mznp.mznp :as mznp]
+            [pdenno.mznp.sexp :refer :all]))
 
 (defmacro debug-off [& body]
    `(let [db?# @debugging?

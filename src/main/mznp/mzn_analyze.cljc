@@ -1,14 +1,14 @@
-(ns minizinc.mznp.mzn-analyze
+(ns pdenno.mznp.mzn-analyze
   "Functions to analyze mzn constraints"
   (:require [clojure.pprint :refer (cl-format pprint)]
             [clojure.string       :as str]
             [clojure.set          :as sets]
             [clojure.spec-alpha2  :as s]
             [clojure.walk         :as walk]
-            [minizinc.mznp.mznp     :as mznp]
-            [minizinc.mznp.mzn-fns  :as mznf :refer (forall exists sum aref)]
-            [minizinc.mznp.mzn-data :as mznd :refer (uget)]
-            [minizinc.mznp.mzn-user :as mznu]))
+            [pdenno.mznp.mznp     :as mznp]
+            [pdenno.mznp.mzn-fns  :as mznf :refer (forall exists sum aref)]
+            [pdenno.mznp.mzn-data :as mznd :refer (uget)]
+            [pdenno.mznp.mzn-user :as mznu]))
 
 (def diag (atom nil))
 

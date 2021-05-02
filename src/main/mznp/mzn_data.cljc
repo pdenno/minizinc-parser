@@ -1,4 +1,4 @@
-(ns minizinc.mznp.mzn-data
+(ns pdenno.mznp.mzn-data
   "Functions and macros that 'implement' (for execution and explanation) MiniZinc data structures
    To establish data values, data from the minizinc model (:mval) can be used, or data from the
    running Jupyter notebook (:kval)."
@@ -6,16 +6,16 @@
             [clojure.string       :as str]
             [clojure.set          :as sets]
             [clojure.spec-alpha2  :as s]
-            [minizinc.mznp.mznp     :as mznp]
-            [minizinc.mznp.sexp     :as sexp]
-            [minizinc.mznp.mzn-fns  :as mznf]
-            [minizinc.mznp.mzn-user :as mznu]))
+            [pdenno.mznp.mznp     :as mznp]
+            [pdenno.mznp.sexp     :as sexp]
+            [pdenno.mznp.mzn-fns  :as mznf]
+            [pdenno.mznp.mzn-user :as mznu]))
 
 ;;; Data can be found by three ways:
 ;;; (1) :mval : It can be set in MiniZinc. In that case, it is expressed as a literal or
 ;;;            expression found in (-> info :var-decls <name> :mval)
 ;;; (2) :kval : It can be set in Python. In that case, it can be found by purefoo.notebook/kquery-var.
-;;; (3) :uval : It can be found in clojure namespace minizinc.mznp.mzn-user. In this case,
+;;; (3) :uval : It can be found in clojure namespace pdenno.mznp.mzn-user. In this case,
 ;;;             there was also at least an expression, for example (mznf/range 0 numJobs) in
 ;;;             (-> info :var-delcs <name> :uval) 
 
@@ -23,8 +23,8 @@
 (def diag (atom nil))
 
 ;;; ======================== Interning in mznu ====================================================
-(def mznu-ns-string "minizinc.mznp.mzn-user")
-(def mznu-ns-symbol 'minizinc.mznp.mzn-user)
+(def mznu-ns-string "pdenno.mznp.mzn-user")
+(def mznu-ns-symbol 'pdenno.mznp.mzn-user)
 
 ;;; ToDo: Make all_different a spec!
 

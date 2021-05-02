@@ -1,10 +1,10 @@
-(ns minizinc.mznp.mzn-fns-test
+(ns pdenno.mznp.mzn-fns-test
   "Test mzn-fn functions and macros."
   (:require [clojure.test :refer :all]
             [clojure.string :as str]
             [clojure.set    :as sets]
-            [minizinc.mznp.sexp :as sexp]
-            [minizinc.mznp.mzn-fns :refer :all]))
+            [pdenno.mznp.sexp :as sexp]
+            [pdenno.mznp.mzn-fns :refer :all]))
 
 (deftest mzn-fns
   (testing "that functions work as expected"

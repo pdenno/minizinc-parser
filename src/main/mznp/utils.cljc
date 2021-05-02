@@ -1,4 +1,4 @@
-(ns minizinc.mznp.utils
+(ns pdenno.mznp.utils
   "Parse MiniZinc to records."
   (:require [clojure.pprint :refer (cl-format pprint)]
             [clojure.string :as str]

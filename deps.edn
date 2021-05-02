@@ -8,6 +8,7 @@
                       :main-opts ["-m" "depot.outdated.main"]}
 
            ;; https://github.com/seancorfield/depstar
+           ;; See "My Deployment Process" on that page
            ;; clj -X:depstar jar :jar minizinc-parser.jar
            :depstar {:replace-deps ; for generation of jars and uberjars
                      {seancorfield/depstar {:mvn/version "2.0.161"}}
