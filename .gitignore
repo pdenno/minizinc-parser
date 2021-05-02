@@ -11,3 +11,15 @@ pom.xml.asc
 /.nrepl-port
 .hgignore
 .hg/
+node_modules/
+public/js
+/src/gen
+*.iml
+*.log
+.shadow-cljs
+.nrepl-*
+.DS_Store
+
+
+
+

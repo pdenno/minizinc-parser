@@ -1,4 +1,4 @@
-(ns pdenno.mznp.mzn-fns
+(ns minizinc.mznp.mzn-fns
   "Functions and macros that 'implement' (for execution and explanation) MiniZinc functions (generator exps, etc.)"
   (:refer-clojure :exclude [range max min])
   (:require [clojure.string :as str]

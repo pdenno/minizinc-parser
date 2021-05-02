@@ -1,10 +1,10 @@
-(ns pdenno.mznp.mznp
+(ns minizinc.mznp.mznp
   "Parse MiniZinc to records."
   (:require [clojure.pprint :refer (cl-format pprint)]
             [clojure.string :as str]
             [clojure.set    :as sets]
             [clojure.spec.alpha :as s]
-            [pdenno.mznp.utils :as util]))
+            [minizinc.mznp.utils :as util]))
 
 ;;; Purpose: Parse minizinc .mzn. 
 ;;; The 'defparse' parsing functions pass around complete state. 

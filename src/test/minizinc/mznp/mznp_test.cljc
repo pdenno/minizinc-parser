@@ -1,8 +1,8 @@
-(ns pdenno.mznp.mznp-test
+(ns minizinc.mznp.mznp-test
   (:require [clojure.test :refer :all]
             [clojure.set :as sets]
-            [pdenno.mznp.mznp :refer :all :as mznp])
-  (:import (pdenno.mznp.mznp
+            [minizinc.mznp.mznp :refer :all :as mznp])
+  (:import (minizinc.mznp.mznp
             MznVarDecl)))
 
 (deftest single-lines
