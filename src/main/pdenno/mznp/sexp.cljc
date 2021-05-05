@@ -1,35 +1,15 @@
 (ns pdenno.mznp.sexp
   "Simplify the parsed structure using s-expressions in some places."
-  (:require [clojure.pprint :refer (cl-format pprint)]
-            [clojure.string :as str]
-            [clojure.set    :as sets]
-            [clojure.spec.alpha :as s]
-            [pdenno.mznp.utils :as util]
-            [pdenno.mznp.mzn-fns :refer :all :as mznf :exclude [range min max]]
+  (:require [clojure.spec.alpha :as s]
+            [pdenno.mznp.macros :refer [defrewrite]]
+            [pdenno.mznp.mzn-fns #_#_:refer :all :as mznf :exclude [range min max]]
             [pdenno.mznp.mznp :as mznp]
+            [pdenno.mznp.utils :as util]
             [taoensso.timbre :as log]))
 
 ;;; The functions that end in a * (rewrite* and form-bin-ops*) are 'toplevel' and good for testing. 
 
-(def debugging? (atom false))
 (def diag (atom {}))
-(def tags (atom []))
-(def locals (atom [{}]))
-
-;;; Similar to mznp/defparse except that it serves no role except to make debugging nicer.
-;;; You could eliminate this by global replace of "defrewrite" --> "defmethod rewrite" and removing defn rewrite. 
-(defmacro defrewrite [tag [obj & keys-form] & body] 
-  `(defmethod rewrite-meth ~tag [~'tag ~obj ~@(or keys-form '(& _))]
-     (when @debugging? (cl-format *out* "~A==> ~A~%" (util/nspaces (count @tags)) ~tag))
-     (swap! tags #(conj % ~tag))
-     (swap! locals #(into [{}] %))
-     (let [result# (try ~@body
-                        (catch Exception e# {:error (.getMessage e#)
-                                             :rewrite-error? true}))]
-     (swap! tags #(-> % rest vec))
-     (swap! locals #(-> % rest vec))
-     (do (when @debugging? (cl-format *out* "~A<-- ~A returns ~S~%" (util/nspaces (count @tags)) ~tag result#))
-         result#))))
 
 (declare map-simplify remove-nils rewrite precedence op-precedence)
 (declare order-bin-ops reduce-bin-ops)
@@ -279,17 +259,17 @@
   (let [all? (not (or (contains? opts :simplify?)
                       (contains? opts :rewrite?)
                       (contains? opts :none?)))
-        mznp-db? @mznp/debugging?
-        db?           @debugging?]
-    (reset! mznp/debugging? debug-mznp?)
-    (reset!      debugging? debug?)
+        mznp-db? @util/debugging?
+        db?      @util/debugging-rewrite?]
+    (reset! util/debugging? debug-mznp?)
+    (reset! util/debugging-rewrite? debug?)
     (let [result (-> (mznp/parse-string tag (if file? (slurp str) str))
                      :result
                      (cond->
                          (or all? rewrite? simplify?) map-simplify
                          (or all? rewrite?)           rewrite))] 
-      (reset! mznp/debugging? mznp-db?)
-      (reset!      debugging?      db?)
+      (reset! util/debugging? mznp-db?)
+      (reset! util/debugging-rewrite? db?)
       result)))
 
 ;;; In the case of a + b   the Expr      has a :tail

@@ -56,7 +56,7 @@
                   (conj (first v))
                   (conj (second v))))
             [] split)))
-               
+
 (defmacro forall [args where body]
   `(let [current# (atom true)]
      (doseq ~(for-args args)
@@ -98,3 +98,4 @@
                               smaller?#
                               %)))))
      (deref current#)))
+

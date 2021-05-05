@@ -1,11 +1,11 @@
 ;; shadow-cljs configuration
-{:source-paths
- ["src/dev"
-  "src/main"
-  "src/test"]
-
+{:deps {:aliases [:dev]}
+ :source-paths  ["src/dev" "src/main" "src/test"]
  :dependencies
  []
 
  :builds
- {}}
+ {:main
+  {:target :node-script
+   :output-dir "resources/public/js/main"
+   :asset-path "/js/main"}}}
