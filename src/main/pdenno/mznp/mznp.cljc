@@ -433,7 +433,7 @@
         (= \{ tkn)                                   ; 
         (#{:ann :opt} tkn)                           ; others
         (instance? MznTypeInstVar tkn)               ; base-ti-expr-tail ... <ti-variable-expr-tail>
-        (find-token (token-vec pstate) :range-op))))    ; base-ti-expr-tail ... <num-expr> ".."  <num-expr> 
+        (find-token (token-vec pstate) :range-op)))) ; base-ti-expr-tail ... <num-expr> ".."  <num-expr> 
       
 ;;; <item> ::= <include-item> | <var-decl-item> | <assign-item> | <constraint-item> | <solve-item> |
 ;;;            <output-item> | <predicate-item> | <test-item> | <function-item> | <annotation-item>

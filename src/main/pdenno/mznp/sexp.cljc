@@ -2,7 +2,7 @@
   "Simplify the parsed structure using s-expressions in some places."
   (:require [clojure.spec.alpha :as s]
             [pdenno.mznp.macros :refer [defrewrite]]
-            [pdenno.mznp.mzn-fns #_#_:refer :all :as mznf :exclude [range min max]]
+            [pdenno.mznp.mzn-fns :as mznf]
             [pdenno.mznp.mznp :as mznp]
             [pdenno.mznp.utils :as util]
             [taoensso.timbre :as log]))
@@ -39,9 +39,12 @@
 
 (defmulti rewrite-meth #'rewrite-dispatch)
 
+(def mznp2mznf-overloaded  "These are 'clojure overloaded'" {:max 'mznf/mzn-max, :min 'mznf/mzn-min})
+
+;;; Range is also clojure overloaded (like the above), but binops are treated differently.
 (def mznp2mznf-binops ; POD I'm lost! IF these are mznp, why is \+ '+ etc. 
   {:<= '<=, \< '<, :not= 'not=, :subset 'mznf/subset, :++-op 'mznf/++, :mod 'mznf/mod,
-   :<--op 'mznf/<-, \* '*, \> '>, :->-op 'mznf/->, :>= '>=, :range-op 'mznf/range,
+   :<--op 'mznf/<-, \* '*, \> '>, :->-op 'mznf/->, :>= '>=, :range-op 'mznf/mzn-range, 
    \- '-, :div 'mznf/div, :xor 'mznf/xor, 'or 'or, :== '=, \/ '/, :intersect 'mznf/intersect
    :<->-op 'mznf/<->, :and-op 'and, \= 'mznf/assign, \+ '+, :superset 'mznf/superset,  
    :union 'mznf/union, :symdiff 'mznf/symdiff, :in 'mznf/in, :diff 'mznf/diff})
@@ -59,6 +62,7 @@
         (symbol? obj)               obj
         (nil? obj)                  obj ; for optional things like (-> m :where rewrite)
         (already-rewritten-ops obj) obj ; already rewritten (POD worth tracking down?)
+        (mznp2mznf obj)             (mznp2mznf obj)          ; Certain keywords are overloaded clojure functions. (not getting used).
         (mznp2mznf-binops obj)      (mznp2mznf-binops obj)   ; Certain keywords are operators.
         (mznp-constants obj)        obj                      ; Certain keywords are constants.
         (seq? obj)                  obj ; already rewritten (POD worth tracking down?)
@@ -167,10 +171,12 @@
     (-> m :head rewrite)))
 
 (defrewrite :MznCallExpr [m]
-   `(~(if (-> m :op :name keyword mznp/builtin-constraint)
-        (symbol "mznf" (-> m :op :name))
-        (:op m))  ; NYI
-     ~@(map rewrite (:args m))))
+  `(~(cond (contains? mznp2mznf-overloaded (:op m))
+           (mznp2mznf-overloaded (:op m)),
+           (-> m :op :name keyword mznp/builtin-constraint)
+           (symbol "mznf" (-> m :op :name)),
+           :else (:op m))  ; NYI 
+    ~@(map rewrite (:args m))))
 
 (defrewrite :MznArrayAccess [m]
   (mapv rewrite (:exprs m)))
@@ -406,7 +412,7 @@
   "Convenience function for testing reduce-bin-ops and order-bin-ops."
   (let [all? (not (or (contains? opts :rewrite?)
                       (contains? opts :reduce?)))
-        mznp-struct (rewrite* ::mznp/expr (if file? (slurp str) str) :simplify? true)]
+        mznp-struct (rewrite* :mznp/expr (if file? (slurp str) str) :simplify? true)]
     (cond-> mznp-struct
       (or all? reduce?) reduce-bin-ops
       all? :bin-ops

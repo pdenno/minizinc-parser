@@ -12,6 +12,9 @@
      (is (= (rewrite* :mznp/expr "1") 1))
      (is (= (rewrite* :mznp/expr "1 + x")   '(+ 1 x)))
      (is (= (rewrite* :mznp/expr "(1 + x)") '(+ 1 x)))
+     (is (= (rewrite* :mznp/expr "1..8")   '(mznf/mzn-range 1 8)))
+     (is (= (rewrite* :mznp/expr "max(x)") '(mznf/mzn-max x)))
+     (is (= (rewrite* :mznp/expr "min(x)") '(mznf/mzn-min x)))
      (is (= (rewrite*
              :mznp/expr
              "if (makeRatio < 0.1) then 10 elseif (makeRatio < 0.5) then 6 else 0 endif")
@@ -44,7 +47,7 @@
      (is (= (rewrite* :mznp/var-decl-item "set of int: Lines = 1..numLines")
             '{:name "Lines",
               :vartype {:datatype :mzn-set, :base-type :int},
-              :mval (mznf/range 1 numLines)}))
+              :mval (mznf/mzn-range 1 numLines)}))
      (is (= (rewrite* :mznp/var-decl-item "array[Lines] of int: LinePenalty")
             '{:name "LinePenalty",
               :vartype {:datatype :mzn-array, :index [Lines], :base-type :int},
@@ -54,7 +57,7 @@
               :vartype
               {:datatype :mzn-2d-array,
                :index [Jobs Weeks],
-               :base-type (mznf/range 0 workforce_size)},
+               :base-type (mznf/mzn-range 0 workforce_size)},
               :mval nil,
               :var? true}))
      (is (= (rewrite* :mznp/item "enum ProductType = {A,B,C}")
@@ -101,7 +104,7 @@
                                                      (not= (mznf/aref WorkersOnJob j w1) 0))))
                                     (= w2
                                         (mznf/max
-                                         [[j Jobs] [w (mznf/range (+ w1 1) numWeeksScheduled)]]
+                                         [[j Jobs] [w (mznf/mzn-range (+ w1 1) numWeeksScheduled)]]
                                          true
                                          (if
                                              (and

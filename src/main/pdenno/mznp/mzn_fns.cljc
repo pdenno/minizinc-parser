@@ -1,6 +1,5 @@
 (ns pdenno.mznp.mzn-fns
   "Functions and macros that 'implement' (for execution and explanation) MiniZinc functions (generator exps, etc.)"
-  (:refer-clojure :exclude [range max min])
   (:require [clojure.string :as str]
             [clojure.walk   :as walk]
             [clojure.set    :as sets]))
@@ -23,7 +22,7 @@
     "weighted_spanning_tree" "cost_mdd" "cost_regular" "mdd" "regular" "regular_nfa"
     "table"})
 
-(defn range [start stop]
+(defn mzn-range [start stop]
   "Create a clojure vector of values specifed by the MiniZinc range args."
   (vec (c/range start (inc stop))))
 
@@ -77,7 +76,7 @@
         (when ~where (swap! current# (fn [arg#] (+ arg# ~body)))))
      (deref current#)))
 
-(defmacro max [args where body]
+(defmacro mzn-max [args where body]
   `(let [current# (atom false)]
      (doseq ~(for-args args)
        (when ~where
@@ -88,7 +87,7 @@
                               %)))))
      (deref current#)))
 
-(defmacro min [args where body]
+(defmacro mzn-min [args where body]
   `(let [current# (atom false)]
      (doseq ~(for-args args)
        (when ~where

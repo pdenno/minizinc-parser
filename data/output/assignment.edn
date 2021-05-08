@@ -5,11 +5,11 @@
   :Workers
   {:name "Workers",
    :vartype {:datatype :mzn-set, :base-type :int},
-   :mval (mznf/range 1 n)},
+   :mval (mznf/mzn-range 1 n)},
   :Tasks
   {:name "Tasks",
    :vartype {:datatype :mzn-set, :base-type :int},
-   :mval (mznf/range 1 n)},
+   :mval (mznf/mzn-range 1 n)},
   :Cost
   {:name "Cost",
    :vartype
