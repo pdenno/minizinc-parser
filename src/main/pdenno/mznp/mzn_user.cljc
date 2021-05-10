@@ -1,12 +1,9 @@
 (ns pdenno.mznp.mzn-user
   "Not much here. It is where the user's data structures and code for constraints is interned."
   (:refer-clojure :exclude [range max min])
-  (:require [clojure.string :as str]
-            [clojure.set    :as sets]
-            [clojure.spec-alpha2 :as s]
+  (:require [clojure.spec-alpha2 :as s]
             [clojure.spec-alpha2.gen :as gen]
-            [clojure.spec-alpha2.test :as test]
-            [pdenno.mznp.mzn-fns :as mznf :refer :all]))
+            [pdenno.mznp.mzn-fns :as mznf]))
 
 (def diag (atom nil))
 
@@ -15,7 +12,7 @@
    against sample data until interrupted, printing out accumulated results."
   [info cnum]
   (let [cfn (-> info :core :constraints (nth cnum) :fn)
-        timer (atom (future (Thread/sleep 2000)))
+        timer (atom (future (Thread/sleep 2000))) ; clj-kondo doesn't know future is in clojure.core?
         results (atom {:true 0 :false 0})]
     (while (not (.. Thread currentThread isInterrupted))
       (when-let [TeamsOnJob (gen/generate (s/gen ::TeamsOnJob))]
@@ -26,7 +23,7 @@
           (println @results)
           (reset! timer (future (Thread/sleep 2000))))))))
 
-
+;;; POD And this is what!?!
 (def toj [[0, 20, 20, 20, 20, 20, 20, 20],
           [0, 20, 20, 20, 20, 20, 20, 20],
           [0, 20, 20, 20, 20, 20, 20, 20],

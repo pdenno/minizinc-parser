@@ -9,8 +9,6 @@
 
 ;;; The functions that end in a * (rewrite* and form-bin-ops*) are 'toplevel' and good for testing. 
 
-(def diag (atom {}))
-
 (declare map-simplify remove-nils rewrite precedence op-precedence)
 (declare order-bin-ops reduce-bin-ops)
 
@@ -19,7 +17,7 @@
    removing nil map values, and adding :type value named after the record."
   [m]
   (cond (record? m)
-        (-> {:type (-> m .getClass .getSimpleName keyword)} ; BTW, nothing from the parse has a :type. 
+        (-> {::type (util/class-name m)}
             (into (zipmap (keys m) (map map-simplify (vals m))))
             remove-nils),
         (vector? m) (mapv map-simplify m),
@@ -35,7 +33,7 @@
              {}
              m))
 
-(defn rewrite-dispatch [tag obj & keys] tag)
+(defn rewrite-dispatch [tag _obj & _keys] tag)
 
 (defmulti rewrite-meth #'rewrite-dispatch)
 
@@ -56,13 +54,12 @@
 
 (def mznp-constants #{:int :float :string})
 (defn rewrite [obj & keys]
-  (cond (map? obj)                  (rewrite-meth (:type obj) obj keys)
+  (cond (map? obj)                  (rewrite-meth (::type obj) obj keys)
         (string? obj)               obj
         (number? obj)               obj
         (symbol? obj)               obj
         (nil? obj)                  obj ; for optional things like (-> m :where rewrite)
         (already-rewritten-ops obj) obj ; already rewritten (POD worth tracking down?)
-        (mznp2mznf obj)             (mznp2mznf obj)          ; Certain keywords are overloaded clojure functions. (not getting used).
         (mznp2mznf-binops obj)      (mznp2mznf-binops obj)   ; Certain keywords are operators.
         (mznp-constants obj)        obj                      ; Certain keywords are constants.
         (seq? obj)                  obj ; already rewritten (POD worth tracking down?)
@@ -73,7 +70,7 @@
 ;;;----------------------- Top-level ---------------------------------------
 (defrewrite :MznModel [m]
   (reduce (fn [res item]
-            (let [type (:type item)]
+            (let [type (::type item)]
               (cond (= type :MznConstraint)
                     (update res :constraints conj (rewrite item))
                     (or (= type :MznVarDecl) (= type :MznEnum))
@@ -139,7 +136,7 @@
 (defrewrite :MznExpr [m]
   (as-> m ?m
     (cond (not (:tail ?m)) (-> m :atom rewrite)
-          (= :MznExprBinopTail (-> ?m :tail :type))
+          (= :MznExprBinopTail (-> ?m :tail ::type))
           (as-> ?m ?m1
             ;; reduce-bin-op handles primaries (nested exprs)
             (map rewrite (-> ?m1 reduce-bin-ops :bin-ops order-bin-ops))) 
@@ -167,7 +164,7 @@
 (defrewrite :MznExprAtom [m]
   (if (contains? m :tail)
     `(~'mznf/aref ~(-> m :head rewrite)
-                       ~@(-> m :tail rewrite))
+      ~@(-> m :tail rewrite))
     (-> m :head rewrite)))
 
 (defrewrite :MznCallExpr [m]
@@ -261,7 +258,7 @@
 (defn rewrite*
   "mzn/parse-string, simplify, and rewrite, but with controls for partial evaluation, debugging etc.
    With no keys it does all steps without debug output."
-  [tag str & {:keys [none? simplify? rewrite? file? debug? debug-mznp?] :as opts}]
+  [tag str & {:keys [simplify? rewrite? file? debug? debug-mznp?] :as opts}]
   (let [all? (not (or (contains? opts :simplify?)
                       (contains? opts :rewrite?)
                       (contains? opts :none?)))
@@ -269,7 +266,7 @@
         db?      @util/debugging-rewrite?]
     (reset! util/debugging? debug-mznp?)
     (reset! util/debugging-rewrite? debug?)
-    (let [result (-> (mznp/parse-string tag (if file? (slurp str) str))
+    (let [result (-> (mznp/parse-string tag #?(:clj (if file? (pdenno.mznp.macros/slurp str) str) :cljs str))
                      :result
                      (cond->
                          (or all? rewrite? simplify?) map-simplify
@@ -283,7 +280,7 @@
 (defn reduce-bin-ops
   "Replace nested binary operations/operands with a flat vector (bvec) [operand, op, operand...] in :bin-ops"
   [exp]
-  (cond (and (= (:type exp) :MznExpr) (:tail exp)) ; a + b
+  (cond (and (= (::type exp) :MznExpr) (:tail exp)) ; a + b
         (let [tail    (-> exp :tail :expr reduce-bin-ops :bin-ops)
               bin-ops (-> (or (:bin-ops exp) []) ; Reduce the head and op... 
                           (conj (-> exp :atom rewrite reduce-bin-ops)) 
@@ -293,7 +290,7 @@
             (assoc  ?e :bin-ops bin-ops)
             (dissoc ?e :atom) ; eliminate the parts reduced (atom and tail). 
             (dissoc ?e :tail))),
-        (= (:type exp) :MznExpr) ; no tail (Array access and others). 
+        (= (::type exp) :MznExpr) ; no tail (Array access and others). 
         (-> exp
             (cond-> (not (:bin-ops exp)) (assoc :bin-ops []))
             (update :bin-ops #(conj % (-> exp :atom rewrite reduce-bin-ops)))
@@ -308,7 +305,7 @@
 
 (def spec-ops (-> mznp2mznf-binops vals set))
 
-(s/check-asserts true)
+(s/check-asserts false)
 (s/def ::op spec-ops)
 (s/def ::pos  (s/and integer? pos?)) ; I *think* pos?
 (s/def ::prec (s/and integer? pos?))
@@ -331,8 +328,9 @@
    {:operators [] :args []}
    (map #(vector %1 %2) (range (count bvec)) bvec)))
 
-(defn update-op-pos [info]
+(defn update-op-pos 
   "Update the :pos values in operators according to new shortened :operands."
+  [info]
   (let [args (:args info)
         replace-pos (reduce (fn [positions [idx v]]
                               (if (= v :$op$)
@@ -408,11 +406,12 @@
       (-> ?info :args first))))
 
 ;;; POD TODO: Remove excessive and, or, + 
-(defn form-bin-ops* [str & {:keys [rewrite? reduce? file?] :as opts}]
+(defn form-bin-ops* 
   "Convenience function for testing reduce-bin-ops and order-bin-ops."
+  [str & {:keys [reduce? file?] :as opts}]
   (let [all? (not (or (contains? opts :rewrite?)
                       (contains? opts :reduce?)))
-        mznp-struct (rewrite* :mznp/expr (if file? (slurp str) str) :simplify? true)]
+        mznp-struct (rewrite* :mznp/expr #?(:clj (if file? (pdenno.mznp.macros/slurp str) str) :cljs str) :simplify? true)]
     (cond-> mznp-struct
       (or all? reduce?) reduce-bin-ops
       all? :bin-ops

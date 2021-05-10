@@ -2,7 +2,7 @@
   "Functions and macros that 'implement' (for execution and explanation) MiniZinc data structures
    To establish data values, data from the minizinc model (:mval) can be used, or data from the
    running Jupyter notebook (:kval)."
-  (:require [clojure.pprint :refer (cl-format pprint)]
+  (:require [clojure.pprint :refer [cl-format pprint]]
             [clojure.string       :as str]
             [clojure.set          :as sets]
             [clojure.spec-alpha2  :as s]

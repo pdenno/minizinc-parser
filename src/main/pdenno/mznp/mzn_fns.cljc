@@ -2,9 +2,10 @@
   "Functions and macros that 'implement' (for execution and explanation) MiniZinc functions (generator exps, etc.)"
   (:require [clojure.string :as str]
             [clojure.walk   :as walk]
-            [clojure.set    :as sets]))
+            [clojure.set    :as sets]
+            [pdenno.mznp.macros :refer [forall exists sum mzn-max mzn-min]]))
 
-(alias 'c 'clojure.core)
+;; POD ToDo: Can't mzn-max mzn-min use c/min c/max. 
 
 (def built-in-globals
   #{"all_different"  "all_disjoint" "all_equal" "nvalue" "symmetric_all_different"
@@ -24,7 +25,7 @@
 
 (defn mzn-range [start stop]
   "Create a clojure vector of values specifed by the MiniZinc range args."
-  (vec (c/range start (inc stop))))
+  (vec (range start (inc stop))))
 
 ;;; POD It was probably wrong to use arrays for arrays. Because indexing can
 ;;;     be anything, I should have used maps. But for now.
@@ -40,61 +41,4 @@
   "Returns true if all values are different."
   [vals]
   (= (count vals) (-> vals distinct count)))
-
-(defn for-args
-  "Args can look like e.g. [[lin Lines] [w1 w2 Weeks]]. They need to match syntax of clojure/for."
-  [args]
-  (let [split (reduce (fn [res arg-set]
-                        (let [vars (butlast arg-set)
-                              src  (last arg-set)]
-                          (into res (mapv #(vector % src) vars))))
-                      []
-                      args)]
-    (reduce (fn [res v]
-              (-> res
-                  (conj (first v))
-                  (conj (second v))))
-            [] split)))
-
-(defmacro forall [args where body]
-  `(let [current# (atom true)]
-     (doseq ~(for-args args)
-        (when (deref current#) ; POD doesn't exit early. 
-          (when ~where (swap! current# (fn [arg#] ~body))))) ; arg not used.
-     (deref current#)))
-
-(defmacro exists [args where body]
-  `(let [current# (atom false)]
-     (doseq ~(for-args args)
-       (when (-> current# deref not) ; POD doesn't exit early. 
-         (when ~where (swap! current# (fn [arg#] ~body))))) ; arg not used.
-     (deref current#)))
-
-(defmacro sum [args where body]
-  `(let [current# (atom 0)]
-     (doseq ~(for-args args)
-        (when ~where (swap! current# (fn [arg#] (+ arg# ~body)))))
-     (deref current#)))
-
-(defmacro mzn-max [args where body]
-  `(let [current# (atom false)]
-     (doseq ~(for-args args)
-       (when ~where
-         (swap! current# #(let [bigger?# ~body]
-                            (if (or (-> current# deref not)
-                                    (> bigger?# %))
-                              bigger?#
-                              %)))))
-     (deref current#)))
-
-(defmacro mzn-min [args where body]
-  `(let [current# (atom false)]
-     (doseq ~(for-args args)
-       (when ~where
-         (swap! current# #(let [smaller?# ~body]
-                            (if (or (-> current# deref not)
-                                    (< smaller?# %))
-                              smaller?#
-                              %)))))
-     (deref current#)))
 

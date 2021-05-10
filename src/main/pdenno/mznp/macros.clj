@@ -1,32 +1,51 @@
 (ns pdenno.mznp.macros
+  "ClojureScript-compatible macros for mznp." 
+  (:refer-clojure :exclude [slurp])
   (:require
-   [clojure.pprint :refer (cl-format)]
-   [pdenno.mznp.utils :refer [debugging? debugging-rewrite? tags locals] :as util]))
+   [clojure.pprint]
+   [pdenno.mznp.utils :refer [debugging? debugging-rewrite? #_eat-token tags locals #_auto-parse?]]))
+
+;;; BTW, in general, when writing macros for ClojureScript-compatible code, don't use ns aliases.
+(defmacro slurp [file]
+  `(clojure.core/slurp ~file))
 
 ;;;================================= mznp.cljc =================================================
+#_(defmacro defparse [tag [pstate & keys-form] & body]
+  `(defmethod ~'pdenno.mznp.mznp/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))]
+     (when @debugging? (clojure.pprint/cl-format "~%~A~A==> ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
+     (as-> ~pstate ~pstate
+       (if (auto-parse? ~tag (:tkn ~pstate))
+         (as-> ~pstate ~pstate
+           (assoc ~pstate :result (:tkn ~pstate))
+           (eat-token ~test))
+         (as-> ~pstate ~pstate
+           (update-in ~pstate [:tags] conj ~tag)
+           (update-in ~pstate [:local] #(into [{}] %))
+           (if (:error ~pstate) ; Stop things
+             ~pstate
+             (try ~@body
+                  (catch Exception e# {:error (.getMessage e#)
+                                       :pstate ~pstate})))
+           (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
+           (update-in ~pstate [:local] #(vec (rest %)))
+           (do (when @debugging? (clojure.pprint/cl-format *out* "~%~A<-- ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
+               ~pstate))))))
+
 (defmacro defparse [tag [pstate & keys-form] & body]
-  `(defmethod ~'pdenno.mznp.mznp/parse ~tag [~'tag ~pstate ~@(or keys-form '(& ignore))]
-     (when @debugging? (printf "%n%s==> %s" (util/nspaces (-> ~pstate :tags count)) ~tag))
+  `(defmethod ~'pdenno.mznp.mznp/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))] ; POD Why ~'tag? 
+     (when @debugging? (clojure.pprint/cl-format "~%~A~A==> ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
        (if (:error ~pstate) ; Stop things
-         ~pstate
-         (try ~@body
-              (catch Exception e# {:error (.getMessage e#)
-                                  :pstate ~pstate})))
+	 ~pstate
+	 (try ~@body
+	      (catch Exception e# {:error (.getMessage e#)
+				   :pstate ~pstate})))
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
-       (do (when @debugging? (cl-format *out* "~%~A<-- ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
-           ~pstate))))
-
-;;; Abbreviated for simple forms such as builtins. 
-(defmacro defparse-auto [tag test]
-  `(defparse ~tag
-     [pstate#]
-     (-> pstate#
-         (assoc :result (:tkn pstate#))
-         (pdenno.mznp.mznp/eat-token ~test))))
+       (do (when @debugging? (clojure.pprint/cl-format *out* "~%~A<-- ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
+	   ~pstate))))
 
 ;;; This is an abstraction over protecting :result while something else swapped in...
 (defmacro store [ps key & [from]]
@@ -45,7 +64,8 @@
 ;;; You could eliminate this by global replace of "defrewrite" --> "defmethod rewrite" and removing defn rewrite. 
 (defmacro defrewrite [tag [obj & keys-form] & body] 
   `(defmethod ~'pdenno.mznp.sexp/rewrite-meth ~tag [~'tag ~obj ~@(or keys-form '(& _))]
-     (when @debugging-rewrite? (cl-format *out* "~A==> ~A~%" (util/nspaces (count @tags)) ~tag))
+     (when @debugging-rewrite? (clojure.pprint/cl-format *out* "~A==> ~A~%"
+                                                         (pdenno.mznp.utils/nspaces (count @tags)) ~tag))
      (swap! tags #(conj % ~tag))
      (swap! locals #(into [{}] %))
      (let [result# (try ~@body
@@ -53,7 +73,8 @@
                                              :rewrite-error? true}))]
      (swap! tags #(-> % rest vec))
      (swap! locals #(-> % rest vec))
-     (do (when @debugging-rewrite? (cl-format *out* "~A<-- ~A returns ~S~%" (util/nspaces (count @tags)) ~tag result#))
+     (do (when @debugging-rewrite? (clojure.pprint/cl-format *out* "~A<-- ~A returns ~S~%"
+                                                             (pdenno.mznp.utils/nspaces (count @tags)) ~tag result#))
          result#))))
 
 ;;;================================= sexp_test.cljc =================================================
@@ -65,3 +86,61 @@
       ~@body
       (reset! debugging-rewrite? rewr-db?#)
       (reset! debugging?         mznp-db?#)))
+
+;;;=============================== mzn_fns.cljc ====================================================
+(defn for-args
+  "Args can look like e.g. [[lin Lines] [w1 w2 Weeks]]. They need to match syntax of clojure/for."
+  [args]
+  (let [split (reduce (fn [res arg-set]
+                        (let [vars (butlast arg-set)
+                              src  (last arg-set)]
+                          (into res (mapv #(vector % src) vars))))
+                      []
+                      args)]
+    (reduce (fn [res v]
+              (-> res
+                  (conj (first v))
+                  (conj (second v))))
+            [] split)))
+
+(defmacro forall [args where body]
+  `(let [current# (atom true)]
+     (doseq ~(for-args args)
+        (when (deref current#) ; POD doesn't exit early. 
+          (when ~where (swap! current# (fn [arg#] ~body))))) ; arg not used.
+     (deref current#)))
+
+(defmacro exists [args where body]
+  `(let [current# (atom false)]
+     (doseq ~(for-args args)
+       (when (-> current# deref not) ; POD doesn't exit early. 
+         (when ~where (swap! current# (fn [arg#] ~body))))) ; arg not used.
+     (deref current#)))
+
+(defmacro sum [args where body]
+  `(let [current# (atom 0)]
+     (doseq ~(for-args args)
+        (when ~where (swap! current# (fn [arg#] (+ arg# ~body)))))
+     (deref current#)))
+
+(defmacro mzn-max [args where body]
+  `(let [current# (atom false)]
+     (doseq ~(for-args args)
+       (when ~where
+         (swap! current# #(let [bigger?# ~body]
+                            (if (or (-> current# deref not)
+                                    (> bigger?# %))
+                              bigger?#
+                              %)))))
+     (deref current#)))
+
+(defmacro mzn-min [args where body]
+  `(let [current# (atom false)]
+     (doseq ~(for-args args)
+       (when ~where
+         (swap! current# #(let [smaller?# ~body]
+                            (if (or (-> current# deref not)
+                                    (< smaller?# %))
+                              smaller?#
+                              %)))))
+     (deref current#)))

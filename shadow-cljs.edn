@@ -1,11 +1,8 @@
-;; shadow-cljs configuration
-{:deps {:aliases [:dev]}
- :source-paths  ["src/dev" "src/main" "src/test"]
- :dependencies
- []
-
+{:source-paths  ["src/dev" "src/main" "src/test"]
+ :dependencies  [[com.taoensso/timbre  "5.1.2"]] ; specifying a clojure version here is not allowed.
  :builds
  {:main
-  {:target :node-script
-   :output-dir "resources/public/js/main"
-   :asset-path "/js/main"}}}
+  {:target :node-library
+   :output-to "out/lib.js"
+   :exports-var pdenno.mznp.sexp/rewrite*}}}
+
