@@ -3,10 +3,11 @@
   (:refer-clojure :exclude [slurp])
   (:require
    [clojure.edn        :as edn]
+   [clojure.pprint :refer [cl-format]]
    [clojure.string     :as str]
    [clojure.set        :as sets]
    [clojure.spec.alpha :as s]
-   [pdenno.mznp.utils  :refer [builtin-bin-op builtin-un-op debugging? eat-token] :as util]
+   [pdenno.mznp.utils  :refer [debugging?] :as util]
    [pdenno.mznp.macros :refer [defparse store recall slurp]]))
 
 ;;; Purpose: Parse minizinc .mzn. 
@@ -235,27 +236,92 @@
                   0
                   (subvec tvec 0 pos)))))
 
+(defn match-tkn
+  "Return true if token matches test, which is a string, character, fn or regex."
+  [test tkn]
+  (cond (= test tkn) true
+        (set? test) (test tkn)
+        (fn? test) (test tkn)
+        (instance? #?(:clj java.util.regex.Pattern :cljs js/RegExp) test) (re-matches test tkn)
+        :else false))
+
+(defn eat-token
+  "Move head of :tokens to :tkn ('consuming' the old :tkn) With 2 args, test :tkn first."
+  ([pstate]
+   (when @debugging?
+     (cl-format *out* "~%*** Consuming ~S in (~S (~S ~S)) next = ~S"
+                (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) (-> pstate :tokens second :tkn)))
+   (let [next-up (-> pstate :tokens second)]
+     (-> pstate
+         (assoc :tkn  (or (:tkn next-up) :eof))
+         (assoc :line (:line next-up))
+         (assoc :col  (:col next-up))
+         (assoc :tokens (vec (rest (:tokens pstate)))))))
+  ([pstate test]
+   (let [next-up (-> pstate :tokens second)]
+     (if (match-tkn test (:tkn pstate))
+       (do
+         (when @debugging?
+           (cl-format *out* "~%*** Consuming ~S in (~S (~S ~S)) test = ~A next = ~S "
+                      (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) test (-> pstate :tokens second :tkn)))
+         (-> pstate ; replicated (rather than called on one arg) for println debugging.
+             (assoc :tkn  (or (:tkn next-up) :eof))
+             (assoc :line (:line next-up))
+             (assoc :col  (:col next-up))
+             (assoc :tokens (vec (rest (:tokens pstate))))))
+       (do
+         (when @debugging?
+           (cl-format *out* "~%*** FAILURE ~S in (~S (~S ~S)) test = ~A next = ~S "
+                      (:tkn pstate) (-> pstate :tags last) (:line pstate) (:col pstate) test (-> pstate :tokens second :tkn))
+           (cl-format *out* "~%*** :error = ~S" (:error pstate)))
+         (-> pstate
+             (assoc :error {:expected test :got (:tkn pstate) :in "eat-token" :line (:line pstate) :col (:col pstate)})
+             (assoc :tkn :eof)))))))
+
 (defn parse-dispatch [tag & _]
-  (if (contains? util/auto-parse-map tag)
-    [tag :auto-parse]
-    tag))
+  tag)
 
 (defmulti parse #'parse-dispatch)
 
-;;; This one for auto-parse 
+;;;================== parse-token (parsing of some atomic things) ======================================================
+;;; <ti-variable-expr-tail> ::= $[A-Za-z][A-Za-z0-9_]*
+;;; <base-type> ::= "bool" | "int" | "float" | "string"
+;;; <builtin-num-un-op> ::= + | -
+;;; <builtin-un-op> ::= not | <builtin-num-un-op>
+;;; <builtin-bin-op> ::= <-> | -> | <- | \/ | xor | /\ | < | > | <= | >= | == | = | != | in |
+;;;                      subset | superset | union | diff | symdiff | .. | intersect| ++ | <builtin-num-bin-op>
+;;; <builtin-num-bin-op> ::= + | - | * | / | div | mod
+;;; <num-bin-op> ::= <builtin-num-bin-op> | ‘<ident>‘
+(def builtin-num-un-op #{\+, \-})
+(def builtin-un-op (conj builtin-num-un-op :not))
+(def builtin-num-bin-op #{\+ \- \* \/ :div :mod})
+(def builtin-bin-op (into #{:<->-op  :->-op  :<-op  :or-op :xor-op :and-op \< \> :<= :>= :== \= :not= :in,
+                            :subset, :superset, :union, :diff, :symdiff, :range-op,  :intersect, :++-op}
+                          builtin-num-bin-op))
+
+(def parse-token-map
+  "A map of parse tags and associated test for tokens of that tag type."
+    {:mznp/bool-literal          #{:false :true}
+     :mznp/int-literal           #(integer? %)
+     :mznp/float-literal         #(float? %)
+     :mznp/string-literal        #(= (type %) MznString)
+     #_#_:mznp/ti-variable-expr-tail #(= (type %) MznTypeInstVar)
+     :mznp/base-type             #{:bool :int :float :string}
+     :mznp/builtin-num-un-op     builtin-num-un-op     ; Not yet used for parse-token; the var is used. 
+     :mznp/builtin-un-op         builtin-un-op         ; Not yet used for parse-token; the var is used. 
+     :mznp/builtin-num-bin-op    builtin-num-bin-op    ; Not yet used for parse-token; the var is used.
+     :mznp/num-bin-op            #(or (= (type %) MznId) (builtin-num-bin-op %))
+     :mznp/builtin-bin-op        builtin-bin-op})      ; Not yet used for parse-token; the var is used.
+
+;;; This method is for all the parse-tags in parse-token-map above. 
 (defmethod parse :default
-  [[tag a-p] pstate]
-  (let [recover (get-method parse [::default pstate])]
-    ;; Prevent infinite loop:
-    (if (and recover (not (= (get-method parse :default) recover)))
-      (do
-        ;; Add the default to the internal cache:
-        ;; Clojurescript will want (-add-method ...)
-        (.addMethod ^clojure.lang.MultiFn parse [[tag a-p] pstate] recover)
-        (recover ::default pstate))
-      (-> pstate
-	  (assoc :result (:tkn pstate))
-	  (eat-token (get util/auto-parse-map tag))))))
+  [tag pstate]
+  (if-let [test (get parse-token-map tag)]
+    (-> pstate
+	(assoc :result (:tkn pstate))
+	(eat-token test))
+    (throw (ex-info "No method for parse tag" {:tag tag}))))
+;;;--------- End parse-token stuff -----------------------------------------------------------------------------------
 
 (defn make-pstate
   "Make a parse state map from tokens, includes separating comments from code."
@@ -277,7 +343,7 @@
   ([tag str]
     (let [pstate (->> str tokenize make-pstate (parse tag))]
       (if (not= (:tkn pstate) :eof)
-        (do (when @debugging? (println "\n\nPARSING ENDED PREMATURELY."))
+        (do (when @debugging? (println "\n\nPARSING ENDED PREMATURELY.\n" pstate))
             (assoc pstate :error {:reason "Parsing ended prematurely."}))
         pstate))))
 
@@ -344,7 +410,6 @@
 
 ;;; See utils.cljc for the following. 
 ;;; <num-bin-op> ::= <builtin-num-bin-op> | ‘<ident>‘
-;;; <ti-variable-expr-tail> ::= $[A-Za-z][A-Za-z0-9_]*
 ;;; <base-type> ::= "bool" | "int" | "float" | "string"
 ;;; <builtin-un-op> ::= not | <builtin-num-un-op>
 ;;; <builtin-num-un-op> ::= + | -
@@ -352,7 +417,7 @@
 ;;;                      subset | superset | union | diff | symdiff | .. | intersect| ++ | <builtin-num-bin-op>
 ;;; <builtin-num-bin-op> ::= + | - | * | / | div | mod
 
-;;;-------------------Library Builtins: These are used 'bare', without util/auto-parse?. ------
+;;;-------------------Library Builtins: These are used 'bare', without parse-token ------
 (def builtin-arithmetic-op (set (->> mzn-keywords-arithmetic (map keyword))))
 
 ;;; POD This is not complete!

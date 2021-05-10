@@ -10,30 +10,9 @@
   `(clojure.core/slurp ~file))
 
 ;;;================================= mznp.cljc =================================================
-#_(defmacro defparse [tag [pstate & keys-form] & body]
-  `(defmethod ~'pdenno.mznp.mznp/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))]
-     (when @debugging? (clojure.pprint/cl-format "~%~A~A==> ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
-     (as-> ~pstate ~pstate
-       (if (auto-parse? ~tag (:tkn ~pstate))
-         (as-> ~pstate ~pstate
-           (assoc ~pstate :result (:tkn ~pstate))
-           (eat-token ~test))
-         (as-> ~pstate ~pstate
-           (update-in ~pstate [:tags] conj ~tag)
-           (update-in ~pstate [:local] #(into [{}] %))
-           (if (:error ~pstate) ; Stop things
-             ~pstate
-             (try ~@body
-                  (catch Exception e# {:error (.getMessage e#)
-                                       :pstate ~pstate})))
-           (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
-           (update-in ~pstate [:local] #(vec (rest %)))
-           (do (when @debugging? (clojure.pprint/cl-format *out* "~%~A<-- ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
-               ~pstate))))))
-
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod ~'pdenno.mznp.mznp/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))] ; POD Why ~'tag? 
-     (when @debugging? (clojure.pprint/cl-format "~%~A~A==> ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
+     (when @debugging? (clojure.pprint/cl-format *out* "~%~A==> ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
@@ -44,7 +23,7 @@
 				   :pstate ~pstate})))
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
-       (do (when @debugging? (clojure.pprint/cl-format *out* "~%~A<-- ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
+       (do (when @debugging? (clojure.pprint/cl-format *out* "~%~A<-- ~A" (util/nspaces (-> ~pstate :tags count)) ~tag)) ; POD inc???
 	   ~pstate))))
 
 ;;; This is an abstraction over protecting :result while something else swapped in...

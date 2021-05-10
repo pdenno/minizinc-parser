@@ -28,7 +28,7 @@
       (is (= (form-bin-ops* "x + 2 * 3 + 4 * 5")
              '(+ (+ x (* 2 3)) (* 4 5))))
       (is (= (form-bin-ops* "1 + 2 * 3 + 4 * 5" :reduce? true)
-             {:type :MznExpr, :bin-ops [1 \+ 2 \* 3 \+ 4 \* 5]}))
+             {:pdenno.mznp.sexp/type :MznExpr, :bin-ops [1 \+ 2 \* 3 \+ 4 \* 5]}))
       (is (= (-> (rewrite* :mznp/expr "1 + 2 * 3")) '(+ 1 (* 2 3))))
       ;; Some with primaries
       (is (= (form-bin-ops* "3 * (1 + 2)") '(* 3 (+ 1 2))))
