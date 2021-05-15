@@ -8,7 +8,7 @@
    [clojure.set        :as sets]
    [clojure.spec.alpha :as s]
    [pdenno.mznp.utils  :refer [debugging?] :as util]
-   [pdenno.mznp.macros :refer-macros [defparse store recall #_slurp]]))
+   [pdenno.mznp.macros :refer-macros [defparse store recall] :refer [defparse store recall]]))
 
 ;;; Purpose: Parse minizinc .mzn. 
 ;;; The 'defparse' parsing functions pass around complete state. 
@@ -347,11 +347,6 @@
             (assoc pstate :error {:reason "Parsing ended prematurely."}))
         pstate))))
 
-#?(:clj (defn parse-file
-          "Parse a whole file given a filename string."
-          [filename]
-          (parse-string :mznp/model (slurp filename))))
-
 (defn parse-ok?
   "Return true if the string parses okay."
   [tag text]
@@ -377,7 +372,7 @@
          (= char-close (:tkn ps))
          (as-> ps ?ps1
            (eat-token ?ps1)
-           (assoc ?ps1 :result (recall ?ps1 :items))),
+           (assoc ?ps1 :result (macs/recall ?ps1 :items))),
          :else
          (as-> ps ?ps1
            (parse parse-tag ?ps1)

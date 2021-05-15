@@ -1,7 +1,7 @@
 (ns pdenno.mznp.sexp
   "Simplify the parsed structure using s-expressions in some places."
   (:require [clojure.spec.alpha :as s]
-            [pdenno.mznp.macros :refer-macros [defrewrite]]
+            [pdenno.mznp.macros :refer-macros [defrewrite] :refer [defrewrite]]
             [pdenno.mznp.mzn-fns :as mznf]
             [pdenno.mznp.mznp :as mznp]
             [pdenno.mznp.utils :as util]
@@ -278,7 +278,7 @@
         db?      @util/debugging-rewrite?]
     (reset! util/debugging? debug-parse?)
     (reset! util/debugging-rewrite? debug?)
-    (let [result (-> (mznp/parse-string tag #?(:clj (if file? (pdenno.mznp.macros/slurp str) str) :cljs str))
+    (let [result (-> (mznp/parse-string tag #?(:clj (if file? (slurp str) str) :cljs str))
                      :result
                      (cond->
                          (or all? rewrite? simplify?) map-simplify
@@ -423,7 +423,7 @@
   [str & {:keys [reduce? file?] :as opts}]
   (let [all? (not (or (contains? opts :rewrite?)
                       (contains? opts :reduce?)))
-        mznp-struct (rewrite* :mznp/expr #?(:clj (if file? (pdenno.mznp.macros/slurp str) str) :cljs str) :simplify? true)]
+        mznp-struct (rewrite* :mznp/expr #?(:clj (if file? (slurp str) str) :cljs str) :simplify? true)]
     (cond-> mznp-struct
       (or all? reduce?) reduce-bin-ops
       all? :bin-ops

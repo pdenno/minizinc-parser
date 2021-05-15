@@ -1,7 +1,7 @@
 (ns pdenno.mznp.macros
   "ClojureScript-compatible macros for mznp."
   (:require
-   [pdenno.mznp.utils :refer [debugging? debugging-rewrite? tags locals]]))
+   [pdenno.mznp.utils :refer [debugging? debugging-rewrite? tags locals nspaces]]))
 
 ;;; (1) Macros don't have to be written in .clj; .cljc is fine. See https://clojurescript.org/about/differences:
 ;;;     "Macros are written in *.clj or *.cljc files and are compiled either as Clojure when using regular ClojureScript
@@ -11,7 +11,7 @@
 ;;;================================= mznp.cljc =================================================
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod ~'pdenno.mznp.mznp/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))] ; POD Why ~'tag? 
-     (when @debugging? (println (str "\n" (util/nspaces (-> ~pstate :tags count)) "==> " ~tag)))
+     (when @debugging? (println (str "\n" (nspaces (-> ~pstate :tags count)) "==> " ~tag)))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
@@ -24,7 +24,7 @@
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
        (do (when @debugging?
-             (println (str "\n"(util/nspaces (-> ~pstate :tags count)) "--> " ~tag (:result ~pstate))))
+             (println (str "\n"(nspaces (-> ~pstate :tags count)) "--> " ~tag (:result ~pstate))))
 	   ~pstate))))
 
 ;;; This is an abstraction over protecting :result while something else swapped in...
@@ -44,7 +44,7 @@
 ;;; You could eliminate this by global replace of "defrewrite" --> "defmethod rewrite" and removing defn rewrite. 
 (defmacro defrewrite [tag [obj & keys-form] & body]
   `(defmethod ~'pdenno.mznp.sexp/rewrite-meth ~tag [~'tag ~obj ~@(or keys-form '(& _))]
-     (when @debugging-rewrite? (println (str (pdenno.mznp.utils/nspaces (count @tags)) ~tag "==> ")))
+     (when @debugging-rewrite? (println (str (nspaces (count @tags)) ~tag "==> ")))
      (swap! tags #(conj % ~tag))
      (swap! locals #(into [{}] %))
      (let [result# (try ~@body
@@ -53,7 +53,7 @@
                             `(catch Exception e# {:error (.getMessage e#) :rewrite-error? true})))]
      (swap! tags #(-> % rest vec))
      (swap! locals #(-> % rest vec))
-     (do (when @debugging-rewrite? (println (str  (util/nspaces (count @tags)) "<-- " ~tag result#)))
+     (do (when @debugging-rewrite? (println (str  (nspaces (count @tags)) "<-- " ~tag result#)))
          result#))))
 
 ;;;================================= sexp_test.cljc =================================================
