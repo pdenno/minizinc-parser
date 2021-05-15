@@ -2,7 +2,7 @@
   "Rewrite the mznp parsed structure to 'executable' EDN."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.edn :as edn]
-            [pdenno.mznp.macros :refer [debug-off]]
+            [pdenno.mznp.macros :refer [debug-off slurp]]
             [pdenno.mznp.sexp :refer [rewrite* form-bin-ops*]]))
 
 (deftest simple-sexp

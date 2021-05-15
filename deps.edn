@@ -1,6 +1,7 @@
 {:paths   ["src/main" "resources"]
- :deps    {org.clojure/clojure        {:mvn/version "1.10.3"}
-           com.taoensso/timbre        {:mvn/version "5.1.2"}}
+ :deps    {com.taoensso/timbre      {:mvn/version "5.1.2"}
+           org.clojure/clojure      {:mvn/version "1.10.3"}}
+           
 
  :aliases {:dev  {:extra-paths ["src/test"]
                   :extra-deps  {org.clojure/clojurescript   {:mvn/version "1.10.773"}

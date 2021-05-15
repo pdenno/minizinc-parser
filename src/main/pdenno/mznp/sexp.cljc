@@ -1,7 +1,7 @@
 (ns pdenno.mznp.sexp
   "Simplify the parsed structure using s-expressions in some places."
   (:require [clojure.spec.alpha :as s]
-            [pdenno.mznp.macros :refer [defrewrite]]
+            [pdenno.mznp.macros :refer-macros [defrewrite]]
             [pdenno.mznp.mzn-fns :as mznf]
             [pdenno.mznp.mznp :as mznp]
             [pdenno.mznp.utils :as util]
@@ -255,16 +255,28 @@
     (-> op op-precedence-tbl :val)
     100))
 
-(defn rewrite*
+;;; The export is here so that you can require this function in JS.
+;;; var ns = require("mznp-js/pdenno.mznp.sexp.rewrite*");
+;;; ns.rewrite*(...)
+(defn ^:export rewrite*
   "mzn/parse-string, simplify, and rewrite, but with controls for partial evaluation, debugging etc.
-   With no keys it does all steps without debug output."
-  [tag str & {:keys [simplify? rewrite? file? debug? debug-mznp?] :as opts}]
+   With no keys it does all steps without debug output.
+  
+      tag - a grammar element. For whole MiniZinc programs use :mznp/model; for expressions :mznp/expr.
+      str - a string to parse, or if :file? true, a file to slurp and process. (:file? true cannot yet be used from JS).
+
+      :simplify?    - Return a nested map of the parse with ::type specified for each node in the AST. Default is true. 
+      :rewrite?     - Return clojure translation of the input. Default is false. 
+      :debug?       - Display diagnostics of the rewriting (when :rewrite? is true).
+      :debug-parse? - Display diagnostics of the parse. 
+  "
+  [tag str & {:keys [simplify? rewrite? file? debug? debug-parse?] :or {simplify? true} :as opts}]
   (let [all? (not (or (contains? opts :simplify?)
                       (contains? opts :rewrite?)
                       (contains? opts :none?)))
         mznp-db? @util/debugging?
         db?      @util/debugging-rewrite?]
-    (reset! util/debugging? debug-mznp?)
+    (reset! util/debugging? debug-parse?)
     (reset! util/debugging-rewrite? debug?)
     (let [result (-> (mznp/parse-string tag #?(:clj (if file? (pdenno.mznp.macros/slurp str) str) :cljs str))
                      :result

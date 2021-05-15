@@ -1,29 +1,30 @@
 (ns pdenno.mznp.macros
-  "ClojureScript-compatible macros for mznp." 
-  (:refer-clojure :exclude [slurp])
+  "ClojureScript-compatible macros for mznp."
   (:require
-   [clojure.pprint]
-   [pdenno.mznp.utils :refer [debugging? debugging-rewrite? #_eat-token tags locals #_auto-parse?]]))
+   [pdenno.mznp.utils :refer [debugging? debugging-rewrite? tags locals]]))
 
-;;; BTW, in general, when writing macros for ClojureScript-compatible code, don't use ns aliases.
-(defmacro slurp [file]
-  `(clojure.core/slurp ~file))
+;;; (1) Macros don't have to be written in .clj; .cljc is fine. See https://clojurescript.org/about/differences:
+;;;     "Macros are written in *.clj or *.cljc files and are compiled either as Clojure when using regular ClojureScript
+;;;      or as ClojureScript when using bootstrapped / self-host ClojureScript."
+;;; (2) In general, when writing macros for ClojureScript-compatible code, don't use ns aliases.
 
 ;;;================================= mznp.cljc =================================================
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod ~'pdenno.mznp.mznp/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))] ; POD Why ~'tag? 
-     (when @debugging? (clojure.pprint/cl-format *out* "~%~A==> ~A" (util/nspaces (-> ~pstate :tags count)) ~tag))
+     (when @debugging? (println (str "\n" (util/nspaces (-> ~pstate :tags count)) "==> " ~tag)))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
        (if (:error ~pstate) ; Stop things
 	 ~pstate
 	 (try ~@body
-	      (catch Exception e# {:error (.getMessage e#)
-				   :pstate ~pstate})))
+              ~(if (:ns &env) ; See https://clojure.org/reference/macros for &env in macros. Also helins/medium. 
+                 `(catch js/Error  e# {:error (str e#)         :pstate ~pstate})
+                 `(catch Exception e# {:error (.getMessage e#) :pstate ~pstate}))))
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
-       (do (when @debugging? (clojure.pprint/cl-format *out* "~%~A<-- ~A" (util/nspaces (-> ~pstate :tags count)) ~tag)) ; POD inc???
+       (do (when @debugging?
+             (println (str "\n"(util/nspaces (-> ~pstate :tags count)) "--> " ~tag (:result ~pstate))))
 	   ~pstate))))
 
 ;;; This is an abstraction over protecting :result while something else swapped in...
@@ -41,19 +42,18 @@
 ;;;================================= sexp.cljc =================================================
 ;;; Similar to mznp/defparse except that it serves no role except to make debugging nicer.
 ;;; You could eliminate this by global replace of "defrewrite" --> "defmethod rewrite" and removing defn rewrite. 
-(defmacro defrewrite [tag [obj & keys-form] & body] 
+(defmacro defrewrite [tag [obj & keys-form] & body]
   `(defmethod ~'pdenno.mznp.sexp/rewrite-meth ~tag [~'tag ~obj ~@(or keys-form '(& _))]
-     (when @debugging-rewrite? (clojure.pprint/cl-format *out* "~A==> ~A~%"
-                                                         (pdenno.mznp.utils/nspaces (count @tags)) ~tag))
+     (when @debugging-rewrite? (println (str (pdenno.mznp.utils/nspaces (count @tags)) ~tag "==> ")))
      (swap! tags #(conj % ~tag))
      (swap! locals #(into [{}] %))
      (let [result# (try ~@body
-                        (catch Exception e# {:error (.getMessage e#)
-                                             :rewrite-error? true}))]
+                        ~(if (:ns &env)
+                            `(catch js/Error  e# {:error (str e#)         :rewrite-error? true})
+                            `(catch Exception e# {:error (.getMessage e#) :rewrite-error? true})))]
      (swap! tags #(-> % rest vec))
      (swap! locals #(-> % rest vec))
-     (do (when @debugging-rewrite? (clojure.pprint/cl-format *out* "~A<-- ~A returns ~S~%"
-                                                             (pdenno.mznp.utils/nspaces (count @tags)) ~tag result#))
+     (do (when @debugging-rewrite? (println (str  (util/nspaces (count @tags)) "<-- " ~tag result#)))
          result#))))
 
 ;;;================================= sexp_test.cljc =================================================

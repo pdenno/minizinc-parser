@@ -1,10 +1,6 @@
 (ns pdenno.mznp.mzn-fns
-  "Functions and macros that 'implement' (for execution and explanation) MiniZinc functions (generator exps, etc.)"
-  (:require [clojure.string :as str]
-            [clojure.walk   :as walk]
-            [clojure.set    :as sets]
-            [pdenno.mznp.macros :refer [forall exists sum mzn-max mzn-min]]))
-
+  "Functions and macros that 'implement' (for execution and explanation) MiniZinc functions (generator exps, etc.)")
+  
 ;; POD ToDo: Can't mzn-max mzn-min use c/min c/max. 
 
 (def built-in-globals
