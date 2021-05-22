@@ -16,7 +16,8 @@
   "Return a keyword representing the class of the object.
   For example (class-name 1) ==> :Long. Class name is not namespace-qualified."
   [obj]
-  (->> obj type str (re-matches #"^.+\.(.*)$") second keyword))
+  #?(:clj  (->> obj type str                      (re-matches #"^.+\.(.*)$") second keyword)
+     :cljs (->> (with-out-str (print (type obj))) (re-matches #"^.+/(.*)$")  second keyword)))
 
 (defn index-of-elem
   "ClojureScript-compatible version of .indexOf."

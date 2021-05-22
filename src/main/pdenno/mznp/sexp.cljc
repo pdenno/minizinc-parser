@@ -208,8 +208,15 @@
     `(let ~(vec (mapcat #(list (:name %) (:mval %)) bvars))
        ~expr)))
 
+(def diag (atom nil))
+(def diag2 (atom nil))
+(def diag3 (atom nil))
+(def diag4 (atom nil))
+
+
 (defrewrite nil [m]
-  (log/info "No defrewrite method for " m)
+  (log/info "No defrewrite method for object" m)
+  (reset! diag m)
   ;; Don't send back m. Other things get confused.
   nil)
 

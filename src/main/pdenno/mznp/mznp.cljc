@@ -372,7 +372,7 @@
          (= char-close (:tkn ps))
          (as-> ps ?ps1
            (eat-token ?ps1)
-           (assoc ?ps1 :result (macs/recall ?ps1 :items))),
+           (assoc ?ps1 :result (recall ?ps1 :items))),
          :else
          (as-> ps ?ps1
            (parse parse-tag ?ps1)

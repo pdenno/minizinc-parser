@@ -11,7 +11,7 @@
 ;;;================================= mznp.cljc =================================================
 (defmacro defparse [tag [pstate & keys-form] & body]
   `(defmethod ~'pdenno.mznp.mznp/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))] ; POD Why ~'tag? 
-     (when @debugging? (println (str "\n" (nspaces (-> ~pstate :tags count)) "==> " ~tag)))
+     (when @debugging? (println (str (nspaces (* 2 (-> ~pstate :tags count))) "==> " ~tag)))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
@@ -24,7 +24,7 @@
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
        (do (when @debugging?
-             (println (str "\n"(nspaces (-> ~pstate :tags count)) "--> " ~tag (:result ~pstate))))
+             (println (str (nspaces (* 2 (-> ~pstate :tags count))) "<-- " ~tag " " (:result ~pstate))))
 	   ~pstate))))
 
 ;;; This is an abstraction over protecting :result while something else swapped in...
