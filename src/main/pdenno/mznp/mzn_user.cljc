@@ -1,9 +1,9 @@
 (ns pdenno.mznp.mzn-user
   "Not much here. It is where the user's data structures and code for constraints is interned."
   (:refer-clojure :exclude [range max min])
-  (:require [clojure.spec-alpha2 :as s]
-            [clojure.spec-alpha2.gen :as gen]
-            [pdenno.mznp.mzn-fns :as mznf]))
+  (:require [clojure.alpha.spec :as s]
+            [clojure.alpha.spec.gen :as gen]
+            [pdenno.mznp.mzn-fns :as mznf])) ; Needed for eval
 
 (def diag (atom nil))
 

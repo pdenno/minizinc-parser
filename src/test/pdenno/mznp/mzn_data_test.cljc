@@ -1,14 +1,14 @@
 (ns pdenno.mznp.mzn-data-test
   "Test creation and spec-ing of MiniZinc data structures."
   (:require [clojure.test :refer :all]
-            [clojure.spec-alpha2 :as s]
-            [pdenno.mznp.mzn-fns :as mznf]
+            [clojure.alpha.spec :as s]
+            [pdenno.mznp.mzn-fns  :as mznf] ; Not referenced but needed for eval?
             [pdenno.mznp.mzn-data :as mznd]
             [pdenno.mznp.mzn-user :as mznu]))
 
 (deftest mzn-data-structure
   (testing "that MiniZinc data structures pass their specs."
-    (mznd/process-model! "data/assignment.mzn")
+    (mznd/process-model! "data/assignment.mzn") ; Run for side-effects.
     (is (not (nil? (mznd/user-eval 'n))))
     (is (not (nil? (mznd/user-eval 'Tasks))))
     (is (not (nil? (mznd/user-eval 'Workers))))
@@ -23,9 +23,8 @@
     (is (not (s/valid? ::mznu/Cost [[10 20 13] [22 11 31]])))             ; too few subvectors
     (is (s/valid? ::mznu/DoesTask [3 2 1]))
     (is (not (s/valid? ::mznu/DoesTask [4 2 1])))   ; 4 not in index set Tasks. 
-    (is (s/valid? ::mznu/Tasks-elem 3))
-    (is (not (s/valid? ::mznu/Tasks-elem 4)))))  ; 4 not in index set Tasks.
-
+    (is (s/valid?      ::mznu/DoesTask-prop 3))
+    (is (not (s/valid? ::mznu/DoesTask-prop 4)))))  ; 4 not in index set Tasks.
 
 (def define-path-model
   '{:core
@@ -39,6 +38,7 @@
       :v4          {:name "v4",          :vartype {:datatype :int}, :val (my-fn v3)},
       :my-var      {:name "v4",          :vartype {:datatype :int}, :val (my-difficult-fn v3) :var? true}}}})
 
+;;; 2021-10-28 This one needs work. It is returning [:v2 :v3-ng :v1 :v4-not-able :v4 :v3 :x]
 (deftest data-dependencies
   (testing "variable dependency ordering"
     (is (= (mznd/data-dependency-order define-path-model) [:x :v1 :v2 :v3 :v4]))))

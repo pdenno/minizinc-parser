@@ -1,6 +1,6 @@
 (ns pdenno.mznp.sexp
   "Simplify the parsed structure using s-expressions in some places."
-  (:require [clojure.spec.alpha :as s]
+  (:require [clojure.alpha.spec :as s]
             [pdenno.mznp.macros :refer-macros [defrewrite] :refer [defrewrite]]
             [pdenno.mznp.mzn-fns :as mznf]
             [pdenno.mznp.mznp :as mznp]

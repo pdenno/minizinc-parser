@@ -2,14 +2,12 @@
   "Functions and macros that 'implement' (for execution and explanation) MiniZinc data structures
    To establish data values, data from the minizinc model (:mval) can be used, or data from the
    running Jupyter notebook (:kval)."
-  (:require [clojure.pprint :refer [cl-format pprint]]
-            [clojure.string       :as str]
-            [clojure.set          :as sets]
-            [clojure.spec-alpha2  :as s]
-            [pdenno.mznp.mznp     :as mznp]
-            [pdenno.mznp.sexp     :as sexp]
-            [pdenno.mznp.mzn-fns  :as mznf]
-            [pdenno.mznp.mzn-user :as mznu]))
+  (:require 
+   [clojure.set          :as sets]
+   [clojure.alpha.spec   :as s]
+   [pdenno.mznp.mznp     :as mznp]
+   [pdenno.mznp.mzn-fns  :as mznf] ; Not referenced but needed for eval.
+   [pdenno.mznp.sexp     :as sexp]))
 
 ;;; Data can be found by three ways:
 ;;; (1) :mval : It can be set in MiniZinc. In that case, it is expressed as a literal or
@@ -101,6 +99,7 @@
               (symbol sym-str)
               arg))))
 
+;;; POD ToDO: Consider Small Clojure Interpreter (SCI).
 ;;; POD It would be nice to say *what symbol* is unresolved. In tracking this down, 
 ;;; of course, I will have to watch for cycles.
 ;;; (user-eval '(+ x y))
@@ -161,7 +160,7 @@
           (register-spec-info
            info
            (keyword mznu-ns-string (str (:name var-decl) "-prop"))
-           (s/spec* user-obj)),
+           (s/resolve-spec user-obj)), ; POD spec*
           (#{:int :float :string} base-type)
           (register-spec-info info ({:int ::int, :float ::float :string ::string} base-type)),
           :else
@@ -203,7 +202,7 @@
     (register-spec-info
      info
      (keyword mznu-ns-string (name id))
-     (s/spec*
+     (s/resolve-spec ; POD spec*
       (if provided
         `#(= % ~provided)
         `(s/or :not-populated nil?
@@ -217,7 +216,7 @@
     (register-spec-info
      info
      (keyword mznu-ns-string (name id))
-     (s/spec*
+     (s/resolve-spec ; POD spec*
       (if provided
         `#(= % ~provided)
         `(s/or :not-populated nil?
@@ -234,7 +233,7 @@
       (register-spec-info
        ?info
        (keyword mznu-ns-string (name id))
-       (s/spec*
+       (s/resolve-spec ; POD spec*
         (if provided
           `#(= % ~provided)
           `(s/or :not-populated nil?
@@ -260,7 +259,7 @@
       (register-spec-info
        ?info
        (keyword mznu-ns-string (name id))
-       (s/spec* 
+       (s/resolve-spec ; POD spec*
         (if provided
           `#(= % ~provided)
           `(s/or :not-populated nil?
@@ -283,19 +282,19 @@
       (register-spec-info
        info
        (keyword mznu-ns-string (name id))
-       (s/spec* `#(= % ~provided)))
+       (s/resolve-spec `#(= % ~provided))) ; POD spec*
       (as-> info ?info            ; ...describe it on top of base-type-spec!. 
         (base-type-spec! ?info id) ; This sets :temp-model-spec. 
         (register-spec-info
          ?info
          inner-key
-         (s/spec* `(s/coll-of ~(:temp-model-spec ?info)
+         (s/resolve-spec `(s/coll-of ~(:temp-model-spec ?info) ; POD spec*
                               :kind vector?
                               ~@(when inner-size `(:count ~inner-size)))))
         (register-spec-info
          ?info
          (keyword mznu-ns-string (name id))
-         (s/spec* `(s/or
+         (s/resolve-spec `(s/or ; POD spec*
                     :not-populated nil?
                     :populated (s/coll-of
                                 ~inner-key
@@ -330,6 +329,6 @@
   "This is used mostly for debugging."
   [file]
   (-> {} 
-    (assoc  :core (sexp/rewrite* ::mznp/model file :file? true))
+    (assoc  :core (sexp/rewrite* :mznp/model file :file? true))
     intern-model-data 
     register-model-specs))
