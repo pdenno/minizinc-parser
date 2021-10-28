@@ -2,7 +2,6 @@
   "Test creation and spec-ing of MiniZinc data structures."
   (:require [clojure.test :refer :all]
             [clojure.alpha.spec :as s]
-            [pdenno.mznp.mzn-fns  :as mznf] ; Not referenced but needed for eval?
             [pdenno.mznp.mzn-data :as mznd]
             [pdenno.mznp.mzn-user :as mznu]))
 
