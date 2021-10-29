@@ -1,10 +1,11 @@
 {:paths   ["src/main" "resources"]
  :deps    {com.taoensso/timbre      {:mvn/version "5.1.2"}
            org.clojure/clojure      {:mvn/version "1.10.3"}
-           ;; I am using spec.alpha2 :sha "c087ded910b3532a938b37e853df79fc3b9c48c1" found at https://github.com/clojure/spec-alpha2 . 
-           ;; I make the jar with ~clojure -X:project/jar :jar '"spec-alpha2-0.2.177-SHA.jar"'~
-           org.clojure/spec-alpha2 {:mvn/version "0.2.177-SHA"}}
+           org.clojure/spec-alpha2  {:git/url "https://github.com/clojure/spec-alpha2.git" 
+                                     :sha "c087ded910b3532a938b37e853df79fc3b9c48c1"}}
 
- :aliases {:dev  {:extra-paths ["src/test"]
-                  :extra-deps  {expound/expound             {:mvn/version "0.8.9"}
-                                org.clojure/tools.namespace {:mvn/version "1.1.0"}}}}}
+ :aliases {:test {:extra-paths ["src/test"]
+                  :extra-deps {org.clojure/test.check {:mvn/version "1.1.0"}
+                               io.github.cognitect-labs/test-runner
+                               {:git/tag "v0.5.0" :git/sha "48c3c67"}}
+                  :exec-fn cognitect.test-runner.api/test}}}
