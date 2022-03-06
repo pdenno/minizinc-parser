@@ -2,12 +2,11 @@
   "Functions and macros that 'implement' (for execution and explanation) MiniZinc data structures
    To establish data values, data from the minizinc model (:mval) can be used, or data from the
    running Jupyter notebook (:kval)."
-  (:require 
+  (:require
    [clojure.set          :as sets]
    [clojure.alpha.spec   :as s]
-   [pdenno.mznp.mznp     :as mznp]
    [pdenno.mznp.mzn-fns  :as mznf] ; Not referenced but needed for eval.
-   [pdenno.mznp.sexp     :as sexp]))
+   [pdenno.mznp.rewrite  :as rewrite]))
 
 ;;; Data can be found by three ways:
 ;;; (1) :mval : It can be set in MiniZinc. In that case, it is expressed as a literal or
@@ -15,7 +14,7 @@
 ;;; (2) :kval : It can be set in Python. In that case, it can be found by purefoo.notebook/kquery-var.
 ;;; (3) :uval : It can be found in clojure namespace pdenno.mznp.mzn-user. In this case,
 ;;;             there was also at least an expression, for example (mznf/range 0 numJobs) in
-;;;             (-> info :var-delcs <name> :uval) 
+;;;             (-> info :var-delcs <name> :uval)
 
 (declare add-specs register-spec-info uget)
 (def diag (atom nil))
@@ -32,7 +31,7 @@
   (cond (or (number? d) (string? d)) true
         (seq? d) false
         (symbol? d) false
-        (nil? d) false ; not yet defined. 
+        (nil? d) false ; not yet defined.
         (or (vector? d) (set? d)) (every? literal? d)))
 
 (defn indexes-used
@@ -69,13 +68,13 @@
                           (sets/difference (indexes-used info id) assume))]
      (cond (literal? (-> info :core :var-decls id :mval)) true
            (-> info :core :var-decls id :var?) false
-           ;; Everything used is assumed defined and nothing used uses this id. 
+           ;; Everything used is assumed defined and nothing used uses this id.
            (and (every? #(not ((vars-used (-> info :core :vars-used % :mval)) id)) used)
                 (every? #(not ((indexes-used info %) id)) used)
                 (every? assume used)) true
            :else false))))
 
-;;; POD Need to look for cycles? 
+;;; POD Need to look for cycles?
 (defn data-dependency-order
   "Sort the var-decls into an order in which they can be evaluated."
   [info]
@@ -87,7 +86,7 @@
           result
           (recur (into result more?)
                  (sets/difference remaining (set more?))))))))
-      
+
 ;;; ((user-intern "x") 2)
 (defn user-intern
   "Provide a namestring of a variable to intern in mzn-user; the returned function takes one
@@ -100,7 +99,7 @@
               arg))))
 
 ;;; POD ToDO: Consider Small Clojure Interpreter (SCI).
-;;; POD It would be nice to say *what symbol* is unresolved. In tracking this down, 
+;;; POD It would be nice to say *what symbol* is unresolved. In tracking this down,
 ;;; of course, I will have to watch for cycles.
 ;;; (user-eval '(+ x y))
 (defn user-eval
@@ -139,12 +138,12 @@
   [info form]
   (when (or (seq? form) (symbol? form))
     (let [vars (vars-used form)]
-      (and (apply bound? (map #(intern mznu-ns-symbol (-> % name symbol)) vars)) 
+      (and (apply bound? (map #(intern mznu-ns-symbol (-> % name symbol)) vars))
            (every? #(-> % uget nil? not) vars)))))
 
 ;;; ======================== Specs ====================================================
 (defn base-type-spec!
-  "Sets :temp-model-spec in info object and sometimes has the side-effect of registering a spec. 
+  "Sets :temp-model-spec in info object and sometimes has the side-effect of registering a spec.
    If the arg names a MiniZinc base type, return the corresponding spec (::int etc.).
    If the arg names a MiniZinc data object, then define a new spec for *elements* of the named
    data object (not the type of data object). The new spec is named :mznu/<Dataobject name>-elem.
@@ -240,12 +239,12 @@
                  :populated (s/coll-of ~(:temp-model-spec ?info)
                                        :kind set?))))))))
 (defn index-set-size
-  "If the sym corresponds to a sym in mzn-user, and its var's value is a set, 
+  "If the sym corresponds to a sym in mzn-user, and its var's value is a set,
    get its size. Otherwise nil."
   [sym]
   (let [user-obj (-> (intern mznu-ns-symbol (-> sym name symbol)) var-get)]
     (when (coll? user-obj) (count user-obj))))
-      
+
 (defmethod add-specs :mzn-array
   [info id]
   (let [var-decl   (-> info :core :var-decls id)
@@ -283,8 +282,8 @@
        info
        (keyword mznu-ns-string (name id))
        (s/resolve-spec `#(= % ~provided))) ; POD spec*
-      (as-> info ?info            ; ...describe it on top of base-type-spec!. 
-        (base-type-spec! ?info id) ; This sets :temp-model-spec. 
+      (as-> info ?info            ; ...describe it on top of base-type-spec!.
+        (base-type-spec! ?info id) ; This sets :temp-model-spec.
         (register-spec-info
          ?info
          inner-key
@@ -328,7 +327,7 @@
 (defn process-model!
   "This is used mostly for debugging."
   [file]
-  (-> {} 
-    (assoc  :core (sexp/rewrite* :mznp/model file :file? true))
-    intern-model-data 
+  (-> {}
+    (assoc  :core (rewrite/rewrite* :mznp/model file :file? true))
+    intern-model-data
     register-model-specs))

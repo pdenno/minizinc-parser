@@ -1,6 +1,6 @@
 (ns pdenno.mznp.mzn-data-test
   "Test creation and spec-ing of MiniZinc data structures."
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is testing]]
             [clojure.alpha.spec :as s]
             [pdenno.mznp.mzn-data :as mznd]
             [pdenno.mznp.mzn-user :as mznu]))
@@ -21,7 +21,7 @@
     (is (not (s/valid? ::mznu/Cost [[10 20]    [22 11     [14 20]]])))    ; subvectors too small
     (is (not (s/valid? ::mznu/Cost [[10 20 13] [22 11 31]])))             ; too few subvectors
     (is (s/valid? ::mznu/DoesTask [3 2 1]))
-    (is (not (s/valid? ::mznu/DoesTask [4 2 1])))   ; 4 not in index set Tasks. 
+    (is (not (s/valid? ::mznu/DoesTask [4 2 1])))   ; 4 not in index set Tasks.
     (is (s/valid?      ::mznu/DoesTask-prop 3))
     (is (not (s/valid? ::mznu/DoesTask-prop 4)))))  ; 4 not in index set Tasks.
 
@@ -41,11 +41,3 @@
 #_(deftest data-dependencies
   (testing "variable dependency ordering"
     (is (= (mznd/data-dependency-order define-path-model) [:x :v1 :v2 :v3 :v4]))))
-
-
-        
-
-
-
-
-

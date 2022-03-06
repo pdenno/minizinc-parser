@@ -1,19 +1,19 @@
-(ns pdenno.mznp.sexp
+(ns pdenno.mznp.rewrite
   "Simplify the parsed structure using s-expressions in some places."
   (:require [clojure.alpha.spec :as s]
             [pdenno.mznp.macros :refer-macros [defrewrite] :refer [defrewrite]]
             [pdenno.mznp.mzn-fns :as mznf]
-            [pdenno.mznp.mznp :as mznp]
+            [pdenno.mznp.parse :as mznp]
             [pdenno.mznp.utils :as util]
             [taoensso.timbre :as log]))
 
-;;; The functions that end in a * (rewrite* and form-bin-ops*) are 'toplevel' and good for testing. 
+;;; The functions that end in a * (rewrite* and form-bin-ops*) are 'toplevel' and good for testing.
 
 (declare map-simplify remove-nils rewrite precedence op-precedence)
 (declare order-bin-ops reduce-bin-ops)
 
 (defn map-simplify
-  "Recursively traverse the map structures changing records to maps, 
+  "Recursively traverse the map structures changing records to maps,
    removing nil map values, and adding :type value named after the record."
   [m]
   (cond (record? m)
@@ -22,7 +22,7 @@
             remove-nils),
         (vector? m) (mapv map-simplify m),
         :else m))
-        
+
 (defn remove-nils
   "Remove map values that are nil."
   [m]
@@ -40,11 +40,11 @@
 (def mznp2mznf-overloaded  "These are 'clojure overloaded'" {:max 'mznf/mzn-max, :min 'mznf/mzn-min})
 
 ;;; Range is also clojure overloaded (like the above), but binops are treated differently.
-(def mznp2mznf-binops ; POD I'm lost! IF these are mznp, why is \+ '+ etc. 
+(def mznp2mznf-binops ; POD I'm lost! IF these are mznp, why is \+ '+ etc.
   {:<= '<=, \< '<, :not= 'not=, :subset 'mznf/subset, :++-op 'mznf/++, :mod 'mznf/mod,
-   :<--op 'mznf/<-, \* '*, \> '>, :->-op 'mznf/->, :>= '>=, :range-op 'mznf/mzn-range, 
+   :<--op 'mznf/<-, \* '*, \> '>, :->-op 'mznf/->, :>= '>=, :range-op 'mznf/mzn-range,
    \- '-, :div 'mznf/div, :xor 'mznf/xor, 'or 'or, :== '=, \/ '/, :intersect 'mznf/intersect
-   :<->-op 'mznf/<->, :and-op 'and, \= 'mznf/assign, \+ '+, :superset 'mznf/superset,  
+   :<->-op 'mznf/<->, :and-op 'and, \= 'mznf/assign, \+ '+, :superset 'mznf/superset,
    :union 'mznf/union, :symdiff 'mznf/symdiff, :in 'mznf/in, :diff 'mznf/diff})
 
 (def already-rewritten-ops (-> mznp2mznf-binops vals set))
@@ -139,7 +139,7 @@
           (= :MznExprBinopTail (-> ?m :tail ::type))
           (as-> ?m ?m1
             ;; reduce-bin-op handles primaries (nested exprs)
-            (map rewrite (-> ?m1 reduce-bin-ops :bin-ops order-bin-ops))) 
+            (map rewrite (-> ?m1 reduce-bin-ops :bin-ops order-bin-ops)))
           :else (throw (ex-info "Some other tail" {:tail (:tail ?m)})))))
 
 (defrewrite :MznIfExpr [m]
@@ -172,7 +172,7 @@
            (mznp2mznf-overloaded (:op m)),
            (-> m :op :name keyword mznp/builtin-constraint)
            (symbol "mznf" (-> m :op :name)),
-           :else (:op m))  ; NYI 
+           :else (:op m))  ; NYI
     ~@(map rewrite (:args m))))
 
 (defrewrite :MznArrayAccess [m]
@@ -194,7 +194,7 @@
   (conj (mapv rewrite (:ids m))
         (rewrite (:expr m))))
 
-(defrewrite :MznAssignment [m] ; POD used yet? 
+(defrewrite :MznAssignment [m] ; POD used yet?
   `(mznf/assign
     ~(-> m :lhs rewrite)
     ~(-> m :rhs rewrite)))
@@ -221,14 +221,14 @@
 
 ;;; MiniZinc Specification, section 7.2.
 ;;; A lower :val means tighter binding. For example 1+2*3 means 1+(2*3) because * (300) binds tighter than + (400).
-;;; Precedence ordering is done *within* rewriting, thus it is done with mznp symbols, not the mznf ones. 
-(def op-precedence-tbl ; lower :val means binds tighter. 
+;;; Precedence ordering is done *within* rewriting, thus it is done with mznp symbols, not the mznf ones.
+(def op-precedence-tbl ; lower :val means binds tighter.
   {:<->-op    {:assoc :left :val 1200}
    :->-op     {:assoc :left :val 1100}
    :<--op     {:assoc :left :val 1100}
    :or-op     {:assoc :left :val 1000}
    :xor       {:assoc :left :val 1000}
-   :and-op    {:assoc :left :val 900} 
+   :and-op    {:assoc :left :val 900}
    \<         {:assoc :none :val 800}
    \>         {:assoc :none :val 800}
    :<=        {:assoc :none :val 800}
@@ -249,7 +249,7 @@
    :div       {:assoc :left :val 300}
    :mod       {:assoc :left :val 300}
    \/         {:assoc :left :val 300}
-   :intersect {:assoc :left :val 300}   
+   :intersect {:assoc :left :val 300}
    :++-op     {:assoc :right :val 200}
    :<ident>   {:assoc :left  :val 100}})
 
@@ -259,19 +259,19 @@
     100))
 
 ;;; The export is here so that you can require this function in JS.
-;;; var ns = require("mznp-js/pdenno.mznp.sexp.rewrite*");
+;;; var ns = require("mznp-js/pdenno.mznp.rewrite.rewrite*");
 ;;; ns.rewrite*(...)
 (defn ^:export rewrite*
   "mzn/parse-string, simplify, and rewrite, but with controls for partial evaluation, debugging etc.
    With no keys it does all steps without debug output.
-  
+
       tag - a grammar element. For whole MiniZinc programs use :mznp/model; for expressions :mznp/expr.
       str - a string to parse, or if :file? true, a file to slurp and process. (:file? true cannot yet be used from JS).
 
-      :simplify?    - Return a nested map of the parse with ::type specified for each node in the AST. Default is true. 
-      :rewrite?     - Return clojure translation of the input. Default is false. 
+      :simplify?    - Return a nested map of the parse with ::type specified for each node in the AST. Default is true.
+      :rewrite?     - Return clojure translation of the input. Default is false.
       :debug?       - Display diagnostics of the rewriting (when :rewrite? is true).
-      :debug-parse? - Display diagnostics of the parse. 
+      :debug-parse? - Display diagnostics of the parse.
   "
   [tag str & {:keys [simplify? rewrite? file? debug? debug-parse?] :or {simplify? true} :as opts}]
   (let [all? (not (or (contains? opts :simplify?)
@@ -285,7 +285,7 @@
                      :result
                      (cond->
                          (or all? rewrite? simplify?) map-simplify
-                         (or all? rewrite?)           rewrite))] 
+                         (or all? rewrite?)           rewrite))]
       (reset! util/debugging? mznp-db?)
       (reset! util/debugging-rewrite? db?)
       result)))
@@ -297,21 +297,21 @@
   [exp]
   (cond (and (= (::type exp) :MznExpr) (:tail exp)) ; a + b
         (let [tail    (-> exp :tail :expr reduce-bin-ops :bin-ops)
-              bin-ops (-> (or (:bin-ops exp) []) ; Reduce the head and op... 
-                          (conj (-> exp :atom rewrite reduce-bin-ops)) 
+              bin-ops (-> (or (:bin-ops exp) []) ; Reduce the head and op...
+                          (conj (-> exp :atom rewrite reduce-bin-ops))
                           (conj (-> exp :tail :bin-op))
                           (into tail))]
           (as-> exp ?e
             (assoc  ?e :bin-ops bin-ops)
-            (dissoc ?e :atom) ; eliminate the parts reduced (atom and tail). 
+            (dissoc ?e :atom) ; eliminate the parts reduced (atom and tail).
             (dissoc ?e :tail))),
-        (= (::type exp) :MznExpr) ; no tail (Array access and others). 
+        (= (::type exp) :MznExpr) ; no tail (Array access and others).
         (-> exp
             (cond-> (not (:bin-ops exp)) (assoc :bin-ops []))
             (update :bin-ops #(conj % (-> exp :atom rewrite reduce-bin-ops)))
             (dissoc :atom)),
         (map? exp) ; this is the 'preserve' condition
-        (reduce-kv 
+        (reduce-kv
          (fn [e k v] (assoc e k (reduce-bin-ops v)))
          {}
          exp),
@@ -343,7 +343,7 @@
    {:operators [] :args []}
    (map #(vector %1 %2) (range (count bvec)) bvec)))
 
-(defn update-op-pos 
+(defn update-op-pos
   "Update the :pos values in operators according to new shortened :operands."
   [info]
   (let [args (:args info)
@@ -370,7 +370,7 @@
                   (if is-op? (rest positions) positions))))))))
 
 (defn update-args
-  "Remove used operands and replace with sexps." 
+  "Remove used operands and replace with sexps."
   [info mod-pos]
   (update info
             :args
@@ -394,12 +394,12 @@
     (s/assert ::info info)
     (as-> info ?info
       (reduce (fn [info pval]
-                (loop [index (-> info :operators count range) 
+                (loop [index (-> info :operators count range)
                        info info]
                   (let [ops (:operators info)]
                     (if (empty? index)
                       info
-                      (let [ix (first index) ; Picks out an operator (might not be modified; see pval). 
+                      (let [ix (first index) ; Picks out an operator (might not be modified; see pval).
                             omap (nth ops ix)
                             pos  (:pos omap)
                             prec (:prec omap)
@@ -420,8 +420,8 @@
               (-> (map :prec (:operators ?info)) distinct sort))
       (-> ?info :args first))))
 
-;;; POD TODO: Remove excessive and, or, + 
-(defn form-bin-ops* 
+;;; POD TODO: Remove excessive and, or, +
+(defn form-bin-ops*
   "Convenience function for testing reduce-bin-ops and order-bin-ops."
   [str & {:keys [reduce? file?] :as opts}]
   (let [all? (not (or (contains? opts :rewrite?)

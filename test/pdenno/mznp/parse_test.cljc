@@ -1,10 +1,7 @@
-(ns pdenno.mznp.mznp-test
-  (:require [clojure.test :refer :all]
-            [clojure.set :as sets]
-            [pdenno.mznp.mznp :refer [parse-ok?] :as mznp]
-            [pdenno.mznp.utils :refer [debugging?]])
-  (:import (pdenno.mznp.mznp
-            MznVarDecl)))
+(ns pdenno.mznp.parse-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [pdenno.mznp.parse :refer [parse-ok?] :as parse]
+            [pdenno.mznp.utils :refer [debugging?]]))
 
 (deftest single-lines
   (testing "type returned from parsing a short-ish string."
@@ -12,7 +9,7 @@
       (reset! debugging? false)
       (is (parse-ok? :mznp/model                 "include \"all_different.mzn\"; int: i = 0;"))
       (is (parse-ok? :mznp/model                 "var 0..total: end; % Hello, world! \n constraint end == 0; "))
-      
+
       (is (parse-ok? :mznp/include-item          "include \"all_different.mzn\""))
       (is (parse-ok? :mznp/var-decl-item         "int: n = 3"))
       (is (parse-ok? :mznp/var-decl-item         "set of int: Workers = 1..n"))
@@ -48,11 +45,11 @@
       (is (parse-ok? :mznp/if-then-else-expr     "if foo then bar else baz endif"))
 
       (is (parse-ok? :mznp/annotations           ":: set_search(foo)"))
-      
+
       (reset! debugging? db?))))
 
 #?(:clj (defn parse-file [fname]
-          (mznp/parse-string (slurp fname)))
+          (parse/parse-string (slurp fname)))
 
 (deftest whole-models
   (testing "that valid models compile okay."
@@ -75,15 +72,15 @@
     (is (-> (parse-file "data/sudoku.mzn") :error not))
     (is (-> (parse-file "data/penalty.mzn") :error not)))))
 
-;;; POD Would be more useful to identify where an element is in any two of them. 
-#_(deftest builtins-partition 
+;;; POD Would be more useful to identify where an element is in any two of them.
+#_(deftest builtins-partition
   (testing "That the builtins are partitioned."
     (is (empty? (sets/intersection builtin-bin-op
                                    builtin-un-op
                                    builtin-arithmetic-op
                                    builtin-logic-op)))))
 
-;;; This is used to find new builtins from Mzn source code. 
+;;; This is used to find new builtins from Mzn source code.
 #_(defn get-operators []
   "Throwaway to collect operators from builtins.mzn"
   (let [pattern (re-pattern #"^function\s+.+\s+(\')?([\w,\d,\_]+)(\')?\s*\(.*$")]
@@ -94,4 +91,3 @@
          (map #(nth % 2))
          distinct
          sort)))
-

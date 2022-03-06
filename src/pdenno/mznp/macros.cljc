@@ -8,24 +8,24 @@
 ;;;      or as ClojureScript when using bootstrapped / self-host ClojureScript."
 ;;; (2) In general, when writing macros for ClojureScript-compatible code, don't use ns aliases.
 
-;;;================================= mznp.cljc =================================================
+;;;================================= parse.cljc =================================================
 (defmacro defparse [tag [pstate & keys-form] & body]
-  `(defmethod ~'pdenno.mznp.mznp/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))] ; POD Why ~'tag? 
+  `(defmethod ~'pdenno.mznp.parse/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))] ; POD Why ~'tag?
      (when @debugging? (println (str (nspaces (* 2 (-> ~pstate :tags count))) "==> " ~tag)))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
        (update-in ~pstate [:local] #(into [{}] %))
        (if (:error ~pstate) ; Stop things
-	 ~pstate
-	 (try ~@body
-              ~(if (:ns &env) ; See https://clojure.org/reference/macros for &env in macros. Also helins/medium. 
+         ~pstate
+         (try ~@body
+              ~(if (:ns &env) ; See https://clojure.org/reference/macros for &env in macros. Also helins/medium.
                  `(catch js/Error  e# {:error (str e#)         :pstate ~pstate})
                  `(catch Exception e# {:error (.getMessage e#) :pstate ~pstate}))))
        (cond-> ~pstate (not-empty (:tags ~pstate)) (update-in [:tags] pop))
        (update-in ~pstate [:local] #(vec (rest %)))
        (do (when @debugging?
              (println (str (nspaces (* 2 (-> ~pstate :tags count))) "<-- " ~tag " " (:result ~pstate))))
-	   ~pstate))))
+           ~pstate))))
 
 ;;; This is an abstraction over protecting :result while something else swapped in...
 (defmacro store [ps key & [from]]
@@ -34,16 +34,16 @@
      (assoc-in ps# [:local 0 key#]
                (~(or from :result) ps#))))
 
-;;; ...and this is for getting the value back. 
+;;; ...and this is for getting the value back.
 (defmacro recall [ps tag]
   `(let [ps# ~ps]
      (-> ~ps :local first ~tag)))
 
-;;;================================= sexp.cljc =================================================
-;;; Similar to mznp/defparse except that it serves no role except to make debugging nicer.
-;;; You could eliminate this by global replace of "defrewrite" --> "defmethod rewrite" and removing defn rewrite. 
+;;;================================= rewrite.cljc =================================================
+;;; Similar to parse/defparse except that it serves no role except to make debugging nicer.
+;;; You could eliminate this by global replace of "defrewrite" --> "defmethod rewrite" and removing defn rewrite.
 (defmacro defrewrite [tag [obj & keys-form] & body]
-  `(defmethod ~'pdenno.mznp.sexp/rewrite-meth ~tag [~'tag ~obj ~@(or keys-form '(& _))]
+  `(defmethod ~'pdenno.mznp.rewrite/rewrite-meth ~tag [~'tag ~obj ~@(or keys-form '(& _))]
      (when @debugging-rewrite? (println (str (nspaces (count @tags)) ~tag "==> ")))
      (swap! tags #(conj % ~tag))
      (swap! locals #(into [{}] %))
@@ -56,7 +56,7 @@
      (do (when @debugging-rewrite? (println (str  (nspaces (count @tags)) "<-- " ~tag result#)))
          result#))))
 
-;;;================================= sexp_test.cljc =================================================
+;;;================================= rewrite_test.cljc =================================================
 (defmacro debug-off [& body]
    `(let [rewr-db?# @debugging-rewrite?
           mznp-db?# @debugging?]
@@ -85,14 +85,14 @@
 (defmacro forall [args where body]
   `(let [current# (atom true)]
      (doseq ~(for-args args)
-        (when (deref current#) ; POD doesn't exit early. 
+        (when (deref current#) ; POD doesn't exit early.
           (when ~where (swap! current# (fn [arg#] ~body))))) ; arg not used.
      (deref current#)))
 
 (defmacro exists [args where body]
   `(let [current# (atom false)]
      (doseq ~(for-args args)
-       (when (-> current# deref not) ; POD doesn't exit early. 
+       (when (-> current# deref not) ; POD doesn't exit early.
          (when ~where (swap! current# (fn [arg#] ~body))))) ; arg not used.
      (deref current#)))
 

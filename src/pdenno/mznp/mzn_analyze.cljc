@@ -1,6 +1,6 @@
 (ns pdenno.mznp.mzn-analyze
   "Functions to analyze mzn constraints"
-  (:require 
+  (:require
    [pdenno.mznp.mzn-data :as mznd]))
 
 (def diag (atom nil))
@@ -15,4 +15,3 @@
     (mznd/user-eval
      `(fn [& {:keys [~@dvars]}]
         ~body))))
-

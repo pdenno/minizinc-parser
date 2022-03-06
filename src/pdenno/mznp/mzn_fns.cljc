@@ -1,7 +1,7 @@
 (ns pdenno.mznp.mzn-fns
   "Functions and macros that 'implement' (for execution and explanation) MiniZinc functions (generator exps, etc.)")
-  
-;; POD ToDo: Can't mzn-max mzn-min use c/min c/max. 
+
+;; POD ToDo: Can't mzn-max mzn-min use c/min c/max.
 
 (def built-in-globals
   #{"all_different"  "all_disjoint" "all_equal" "nvalue" "symmetric_all_different"
@@ -37,4 +37,3 @@
   "Returns true if all values are different."
   [vals]
   (= (count vals) (-> vals distinct count)))
-

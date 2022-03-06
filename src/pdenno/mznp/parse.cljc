@@ -1,4 +1,4 @@
-(ns pdenno.mznp.mznp
+(ns pdenno.mznp.parse
   "Parse MiniZinc to records."
   (:refer-clojure :exclude [slurp])
   (:require
@@ -10,28 +10,28 @@
    [pdenno.mznp.utils  :refer [debugging?] :as util]
    [pdenno.mznp.macros :refer-macros [defparse store recall] :refer [defparse store recall]]))
 
-;;; Purpose: Parse minizinc .mzn. 
-;;; The 'defparse' parsing functions pass around complete state. 
+;;; Purpose: Parse minizinc .mzn.
+;;; The 'defparse' parsing functions pass around complete state.
 ;;; The 'parse state' (AKA pstate) is a map with keys:
 ;;;   :result  - the parse structure from the most recent call to (parse :<some-rule-tag> pstate)
 ;;;   :tokens  - tokenized content that needs to be parsed into :model. First on this vector is also :tkn.
 ;;;   :tags    - a stack describing where in the grammar it is parsing (used for debugging)
-;;;   :tkn     - current token, not yet consumed. It is also the first token on :tokens. 
+;;;   :tkn     - current token, not yet consumed. It is also the first token on :tokens.
 ;;;   :line    - line in which token appears.
-;;;   :col     - column where token starts. 
+;;;   :col     - column where token starts.
 ;;;   :error   - non-nil when things go wrong
 ;;;   :local   - temporarily stored parse content used later to form a complete grammar element. It is a vector of maps.
-;;;             :local is used by the macros 'store' and 'recall'. 
+;;;             :local is used by the macros 'store' and 'recall'.
 
 ;;; Returns pstate: parse, eat-token, store, recall
 ;;; Returns something else: look, find-token
 
-;;; The grammar implemented is 2.2.0. <Footnote 1> 
+;;; The grammar implemented is 2.2.0. <Footnote 1>
 ;;; The grammar is here: https://www.minizinc.org/doc-2.2.0/en/spec.html
 ;;; The grammar is here: https://www.minizinc.org/doc-2.2.0/en/spec.html#spec-grammar
 
 ;;; Footnote 1: Though I might have grabbed productions from an earlier version of MiniZinc,
-;;;             I am updating to 2.2.0 wherever I find discrepancies. 
+;;;             I am updating to 2.2.0 wherever I find discrepancies.
 
 ;;; ============ Tokenizer ===============================================================
 ;;; POD All this lexer stuff could be integrated with the :builtin stuff of the parser!
@@ -40,19 +40,19 @@
   #{"ann", "annotation", "any", "array", "bool", "case", "constraint", "else",
     "elseif", "endif", "enum", "false", "float", "function", "if", "in", "include", "int",
     "let", "list", "maximize", "minimize", "not", "of", "op", "opt", "output", ; website shows "opt"
-    "par", "predicate", "record", "satisfy", "set", "solve", "string", 
+    "par", "predicate", "record", "satisfy", "set", "solve", "string",
     "test", "then", "true", "tuple", "type", "var", "where", "trace", "trace_stdout"})
 
-;;; builtins.arithmetic -- https://github.com/MiniZinc/libminizinc/blob/master/share/minizinc/std/builtins.mzn 
+;;; builtins.arithmetic -- https://github.com/MiniZinc/libminizinc/blob/master/share/minizinc/std/builtins.mzn
 ;;; You get more than this if you run the function get-operators in mznp_test.clj.
-(def mzn-keywords-arithmetic ; POD 
+(def mzn-keywords-arithmetic ; POD
   #{"abs" "acos" "acosh" "arg_max" "arg_min" "array1d" "array2set" "array_intersect" "array_union" "asin" "asinh"
     "assert" "atan" "atanh" "bool2int" "card" "ceil" "cos" "cosh" "diff" "div" "div_mt" "div_t" "element" "element_mt"
     "element_t" "enum_next" "enum_prev" "exp" "fldiv_mt" "fldiv_t" "floor" "int2float" "intersect" "lin_exp" "ln"
     "log10" "log2" "max" "max_t" "min" "min_t" "mod" "mod_mt" "mod_t" "pow" "product" "product_rec" "sin" "sinh"
     "sqrt" "sqrt_t" "subset" "sum" "superset" "symdiff" "tan" "tanh" "to_enum" "union" "xor"})
 
-;;; global constraints  --  https://github.com/MiniZinc/libminizinc/tree/master/share/minizinc/std 
+;;; global constraints  --  https://github.com/MiniZinc/libminizinc/tree/master/share/minizinc/std
 (def mzn-keywords-global-constraint
   #{"all_different" "all_disjoint" "all_equal" "nvalue"
     "symmetric_all_different" "lex_greater" "lex_greatereq" "lex_less" "lex_lesseq"
@@ -78,13 +78,13 @@
 (def mzn-keywords
   (sets/union mzn-keywords-basic mzn-keywords-arithmetic mzn-keywords-logic))
 
-(def ^:private mzn-long-syntactic ; chars that COULD start a multi-character syntactic elements. 
+(def ^:private mzn-long-syntactic ; chars that COULD start a multi-character syntactic elements.
   #{\., \,, \\, \/, \<, \>, \=, \!, \+, \|, \[, \], \: \-})
 
-(def ^:private mzn-syntactic ; chars that are valid tokens in themselves. 
+(def ^:private mzn-syntactic ; chars that are valid tokens in themselves.
   #{\[, \], \(, \), \{, \}, \=, \^, \,, \:, \;, \|, \*, \+, \/, \-, \<, \>}) ; not \_
 
-;;; POD multi-line comment (e.g. /* ... */ would go in here, sort of. 
+;;; POD multi-line comment (e.g. /* ... */ would go in here, sort of.
 (defn read-long-syntactic [st ws]
   (let [len (count st)
         c0  (nth st 0)
@@ -106,7 +106,7 @@
                             (and (= c0 \<) (= c1 \-) (= c2 \>)) {:raw "<->" :tkn :<->-op})]
       (assoc result :ws ws))))
 
-(defn position-break 
+(defn position-break
   "Return the first position in s containing a syntactic character, ws,
    or nil if it contains none."
   [s]
@@ -120,7 +120,7 @@
           (#{\space \tab \newline} c) n
           :else (recur (inc n)))))))
 
-(defn whitesp 
+(defn whitesp
   "Evaluates to whitespace at head of string or empty string if none."
   [s] ; https://stackoverflow.com/questions/15020669/clojure-multiline-regular-expression
   (if s (or (nth (re-matches #"(?s)(\s+).*$" s) 1) "") ""))
@@ -131,7 +131,7 @@
 (defrecord MznString [str])
 (defrecord MznTypeInstVar [name])
 
-;;; https://www.regular-expressions.info/modifiers.html (?s) allows  .* to match all characters including line breaks. 
+;;; https://www.regular-expressions.info/modifiers.html (?s) allows  .* to match all characters including line breaks.
 (defn token-from-string
   "Return a map with keys :ws, :raw and :tkn from the front of the argument string."
   [stream line]
@@ -140,11 +140,11 @@
         c (first s)]
     ;(cl-format *out* "~%ws = ~S~%c = ~S~%STREAM = ~S" ws c stream)
     (or  (and (empty? s) {:ws ws :raw "" :tkn :eof})                    ; EOF
-         (and (mzn-long-syntactic c) (read-long-syntactic s ws))        ; ++, <=, == etc. 
+         (and (mzn-long-syntactic c) (read-long-syntactic s ws))        ; ++, <=, == etc.
          (and (mzn-syntactic c) {:ws ws :raw (str c) :tkn c})           ; literal syntactic char.
          (when-let [[_ num] (re-matches #"(?s)(\d+(\.\d+(e[+-]?\d+)?)?).*" s)]
            {:ws ws :raw num :tkn (edn/read-string num)}),                   ; number
-         (when-let [[_ id] (re-matches #"(?s)('[^']*').*" s)]           ; identifer type 2 POD Need's work. 
+         (when-let [[_ id] (re-matches #"(?s)('[^']*').*" s)]           ; identifer type 2 POD Need's work.
            {:ws ws :raw id :tkn (->MznId id)})
          (when-let [[_ st] (re-matches #"(?s)(\"[^\"]*\").*" s)]        ; string literal
            {:ws ws :raw st :tkn (->MznString (edn/read-string st))})
@@ -154,21 +154,21 @@
            {:ws ws :raw tivar :tkn (->MznTypeInstVar tivar)})
          (let [pos (position-break s)
                word (subs s 0 (or pos (count s)))]
-            (or 
-             (and (mzn-keywords word) {:ws ws :raw word :tkn (keyword word)})  
-             (when-let [[_ id] (re-matches #"^([a-zA-Z][A-Za-z0-9\_]*).*" word)]     ; identifer type 1 
+            (or
+             (and (mzn-keywords word) {:ws ws :raw word :tkn (keyword word)})
+             (when-let [[_ id] (re-matches #"^([a-zA-Z][A-Za-z0-9\_]*).*" word)]     ; identifer type 1
                {:ws ws :raw id :tkn (->MznId id)})))
          (throw (ex-info "Char starts no known token: " {:raw c :line line})))))
 
 (defn tokenize
   "Return a vector of tokens. A token is a map with keys :tkn, :line :col."
   [stream]
-  (loop [s stream 
+  (loop [s stream
          tkns []
          line 1
          col 1]
     (let [lex (token-from-string s line) ; Returns a map with keys :ws :raw and :tkn.
-          new-lines (count (re-seq #"\n" (:ws lex))) ; :ws is in front of token. 
+          new-lines (count (re-seq #"\n" (:ws lex))) ; :ws is in front of token.
           col (if (> new-lines 0)
                 (- (count (:ws lex)) (str/last-index-of (:ws lex) "\n"))
                 (+ (count (:ws lex)) col))]
@@ -192,13 +192,13 @@
 
 (def balanced-map "What balances with the opening syntax?" { \{ \}, \( \), \[ \] :2d-array-open :2d-array-close})
 (def balanced-inv (sets/map-invert balanced-map))
-  
+
 (defn find-token
   "Return position if tkn is found within the item (before semicolon)."
   [tvec tkn]
   (when (not-empty tvec)
-    (let [pos-semi (util/index-of-elem tvec \;) 
-          pos-semi (if (pos? pos-semi) pos-semi (count tvec)) ; In testing, might not have full item; not semi. 
+    (let [pos-semi (util/index-of-elem tvec \;)
+          pos-semi (if (pos? pos-semi) pos-semi (count tvec)) ; In testing, might not have full item; not semi.
           pos-tkn  (util/index-of-elem tvec tkn)]
       (cond (== pos-tkn  -1) nil,
             (and (pos? pos-semi) (< pos-semi pos-tkn)) nil,
@@ -224,9 +224,9 @@
                      (inc pos)
                      (rest tvec)))))))
 
-(defn balanced? 
-  "Return true if, before position POS there is a closing syntax character for each 
-  argument TKN opening syntax character." 
+(defn balanced?
+  "Return true if, before position POS there is a closing syntax character for each
+  argument TKN opening syntax character."
   [tvec open-tkn pos]
   (let [close-tkn (get balanced-map open-tkn)]
     (== 0 (reduce (fn [cnt tkn]
@@ -307,19 +307,19 @@
      :mznp/string-literal        #(= (type %) MznString)
      #_#_:mznp/ti-variable-expr-tail #(= (type %) MznTypeInstVar)
      :mznp/base-type             #{:bool :int :float :string}
-     :mznp/builtin-num-un-op     builtin-num-un-op     ; Not yet used for parse-token; the var is used. 
-     :mznp/builtin-un-op         builtin-un-op         ; Not yet used for parse-token; the var is used. 
+     :mznp/builtin-num-un-op     builtin-num-un-op     ; Not yet used for parse-token; the var is used.
+     :mznp/builtin-un-op         builtin-un-op         ; Not yet used for parse-token; the var is used.
      :mznp/builtin-num-bin-op    builtin-num-bin-op    ; Not yet used for parse-token; the var is used.
      :mznp/num-bin-op            #(or (= (type %) MznId) (builtin-num-bin-op %))
      :mznp/builtin-bin-op        builtin-bin-op})      ; Not yet used for parse-token; the var is used.
 
-;;; This method is for all the parse-tags in parse-token-map above. 
+;;; This method is for all the parse-tags in parse-token-map above.
 (defmethod parse :default
   [tag pstate]
   (if-let [test (get parse-token-map tag)]
     (-> pstate
-	(assoc :result (:tkn pstate))
-	(eat-token test))
+        (assoc :result (:tkn pstate))
+        (eat-token test))
     (throw (ex-info "No method for parse tag" {:tag tag}))))
 ;;;--------- End parse-token stuff -----------------------------------------------------------------------------------
 
@@ -394,7 +394,7 @@
          (assoc ps :error {:while "parsing a list" :parse-tag parse-tag :line (:line ps)}),
          (term-fn (:tkn ps))
          (assoc ps :result (recall ps :items)),
-         ;(and last-sep? (sep-fn (:tkn ps)) (term-fn 
+         ;(and last-sep? (sep-fn (:tkn ps)) (term-fn
          :else
          (as-> ps ?ps
            (parse parse-tag ?ps)
@@ -403,7 +403,7 @@
              ?ps
              (recur (cond-> ?ps (sep-fn (:tkn ?ps)) (eat-token #{\,\;})))))))))
 
-;;; See utils.cljc for the following. 
+;;; See utils.cljc for the following.
 ;;; <num-bin-op> ::= <builtin-num-bin-op> | ‘<ident>‘
 ;;; <base-type> ::= "bool" | "int" | "float" | "string"
 ;;; <builtin-un-op> ::= not | <builtin-num-un-op>
@@ -430,31 +430,31 @@
 
 ;;; <model> ::= [ <item> ; ... ]
 (defrecord MznModel [items])
-(defparse :mznp/model ; top-level grammar element. 
-  [pstate] 
+(defparse :mznp/model ; top-level grammar element.
+  [pstate]
   (loop [ps (assoc pstate :model (->MznModel []))]
     (if (= :eof (:tkn ps))
       (-> ps
           (assoc :result (:model ps))
           (dissoc :model))
-      (recur 
+      (recur
        (as-> ps ?ps
          (parse :mznp/item ?ps)
          (update-in ?ps [:model :items] conj (:result ?ps))
          (eat-token ?ps \;))))))
 
-(defn var-decl? 
+(defn var-decl?
   "Returns true if head looks like it can start a var-decl"
   [pstate]
   (let [tkn (:tkn pstate)]
     (or (#{:bool :int :float :string :var :par} tkn) ; base-ti-expr
         (instance? MznTypeInstVar tkn)          ; base-ti-expr-tail
         (#{:set :array :list} tkn)                   ; set-ti-expr-tail, :array-ti-expr-tail
-        (= \{ tkn)                                   ; 
+        (= \{ tkn)                                   ;
         (#{:ann :opt} tkn)                           ; others
         (instance? MznTypeInstVar tkn)               ; base-ti-expr-tail ... <ti-variable-expr-tail>
-        (find-token (token-vec pstate) :range-op)))) ; base-ti-expr-tail ... <num-expr> ".."  <num-expr> 
-      
+        (find-token (token-vec pstate) :range-op)))) ; base-ti-expr-tail ... <num-expr> ".."  <num-expr>
+
 ;;; <item> ::= <include-item> | <var-decl-item> | <assign-item> | <constraint-item> | <solve-item> |
 ;;;            <output-item> | <predicate-item> | <test-item> | <function-item> | <annotation-item>
 (defparse :mznp/item
@@ -494,7 +494,7 @@
     (store ?ps :id)
     (assoc ?ps :result (->MznIdDef (recall ?ps :id)
                                    (recall ?ps :type)))))
-    
+
 (defrecord MznInclude [model-part])
 ;;; <include-item> ::= include <string-literal>
 (s/def ::model-part #(do % true))
@@ -604,7 +604,7 @@
 (defrecord MznOutputItem [expr])
 (s/def ::output-item #(instance? MznOutputItem %))
 
-;;; <output-item> ::= output <expr> 
+;;; <output-item> ::= output <expr>
 (defparse :mznp/output-item
   [pstate]
   (as-> pstate ?ps
@@ -757,7 +757,7 @@
               (eat-token ?ps)
               (parse :mznp/base-ti-expr-tail ?ps)
               (assoc-in ?ps [:result :optional?] true)),
-          (= tkn \{)                        ; "{" <expr>, ... "}" 
+          (= tkn \{)                        ; "{" <expr>, ... "}"
           (parse :mznp/set-literal pstate),
           (find-token (token-vec pstate) :range-op)        ; <num-expr> ".."  <num-expr> ; call it a range expression
           (parse :mznp/num-expr pstate)
@@ -776,16 +776,16 @@
       (eat-token ?ps :of)
       (parse :mznp/ti-expr ?ps)
       (assoc ?ps :result (->MznSetType (:result ?ps) nil))))
-          
+
 (defrecord MznArrayType [index base-type optional?])
-(defrecord MznListType [base-type]) 
+(defrecord MznListType [base-type])
 ;;; <array-ti-expr-tail> ::= array "[" <ti-expr>, ... "]" of <ti-expr> | list of <ti-expr> ; POD added " around "[".
 (defparse :mznp/array-ti-expr-tail
   [pstate]
   (cond (= (:tkn pstate) :array)
         (as-> pstate ?ps
           (eat-token ?ps :array)
-          (parse-list ?ps \[ \] \, :mznp/ti-expr) 
+          (parse-list ?ps \[ \] \, :mznp/ti-expr)
           (store ?ps :ti-list)
           (eat-token ?ps :of)
           (parse :mznp/ti-expr ?ps)
@@ -812,7 +812,7 @@
        (= \' (look pstate 3))))
 
 (defrecord MznExpr [atom tail])
-;;; I think the grammar is botched here. <expr-binop-tail> should be optional. That's 
+;;; I think the grammar is botched here. <expr-binop-tail> should be optional. That's
 ;;;  4.1.7.1 Expression Overview
 ;;; <expr> ::= <expr-atom> <expr-binop-tail>
 (defparse :mznp/expr
@@ -840,7 +840,7 @@
     (parse :mznp/annotations ?ps)
     (assoc ?ps :result (->MznExprAtom
                         (recall ?ps :head)
-                        (recall ?ps :tail) 
+                        (recall ?ps :tail)
                         (:result ?ps)))))
 
 (defrecord MznArrayAccess [exprs])
@@ -895,7 +895,7 @@
   [pstate]
   (let [tkn (:tkn pstate)]
     (or (part1 pstate tkn)     ; through <string-literal>
-        (part2 pstate tkn))))  ; through end 
+        (part2 pstate tkn))))  ; through end
 
 (defn part1 [pstate tkn]
   (cond (builtin-un-op tkn)                     ; <builtin-un-op> <expr-atom>
@@ -912,7 +912,7 @@
         (ident-or-quoted-op? pstate)           ; <ident-or-quoted-op>
         (parse :mznp/ident-or-quoted-op pstate),
         (= \_ tkn)                             ; _
-        (-> pstate                              
+        (-> pstate
             eat-token
             (assoc :result \_)),
         (#{:false :true} tkn)                  ; bool-literal
@@ -920,7 +920,7 @@
         (integer? tkn)                         ; int-literal
         (parse :mznp/int-literal pstate),
         (float? tkn)                           ; float-literal
-        (parse :mznp/float-literal pstate), 
+        (parse :mznp/float-literal pstate),
         (instance? MznString tkn)              ; string-literal
         (parse :mznp/string-literal pstate)))
 
@@ -954,9 +954,9 @@
     (cond (and (= tkn \{) (or (not gen-bar-pos)
                               (and close-set-pos (< close-set-pos gen-bar-pos))
                               balanced-set?))                         ; <set-literal>
-          (parse :mznp/set-literal pstate),                                
+          (parse :mznp/set-literal pstate),
           (= tkn \{)                                                  ; <set-comp>
-          (parse :mznp/set-comp pstate),                                   
+          (parse :mznp/set-comp pstate),
           (and (= tkn \[) (or (not gen-bar-pos)
                               (and close-arr-pos (< close-arr-pos gen-bar-pos))
                               balanced-arr?))                         ; <array-literal>
@@ -968,11 +968,11 @@
           (= tkn :ann-sep) ; POD needs investigation!                 ; <ann-literal>
           (parse :mznp/ann-literal pstate),
           (= tkn :if)                                                 ; <if-then-else-expr>
-          (parse :mznp/if-then-else-expr pstate),                          
+          (parse :mznp/if-then-else-expr pstate),
           (= tkn :let)                                                ; <let-expr>
-          (parse :mznp/let-expr pstate),                                          
+          (parse :mznp/let-expr pstate),
           (gen-call-expr? tvec)     ; POD I'm making this up          ; <gen-call-expr> e.g. "sum (w in Workers) (cost[w,doesTask[w]])"
-          (parse :mznp/gen-call-expr pstate)                              ;                       OR forall    
+          (parse :mznp/gen-call-expr pstate)                              ;                       OR forall
           (or (builtin-op tkn)                                        ; <call-expr>
               (and (instance? MznId tkn)
                    (= \( tkn2)))
@@ -1006,18 +1006,18 @@
 
 ;;; <num-expr> ::= <num-expr-atom> <num-expr-binop-tail>   ; Just like <expr>
 (defparse :mznp/num-expr
-  [ps] 
-  (parse :mznp/expr ps)) ; POD Fix this. 
+  [ps]
+  (parse :mznp/expr ps)) ; POD Fix this.
 
 ;;; <num-expr-atom> ::= <num-expr-atom-head> <expr-atom-tail> <annotations> ; Much like <expr-atom>
 (defparse :mznp/num-expr-atom
   [ps]
-  (parse :mznp/expr-atom ps)) ; POD Fix this. 
+  (parse :mznp/expr-atom ps)) ; POD Fix this.
 
 ;;; <num-expr-binop-tail> ::= [ <num-bin-op> <num-expr>]
 (defparse :mznp/num-expr-binop-tail
   [ps]
-  (parse :mznp/expr-binop-tail ps)) ; POD Fix this. 
+  (parse :mznp/expr-binop-tail ps)) ; POD Fix this.
 
 ;;; <num-expr-atom-head> ::= <builtin-num-un-op> <num-expr-atom> | ( <num-expr> ) | <ident-or-quoted-op> |
 ;;;                          <int-literal> | <float-literal> | <if-then-else-expr> | <case-expr> | <let-expr> |
@@ -1037,7 +1037,7 @@
       (eat-token ?ps \'))))
 
 ;;; <set-literal> ::= "{" [ <expr>, ... ] "}"
-(defrecord MznSetLiteral [elems]) 
+(defrecord MznSetLiteral [elems])
 ;;; "{" <expr>, ... "}"
 ;;; (parse :mznp/set-literal {:tkn \{ :tokens [1 \, 2 \, 3 \}] })
 (defparse :mznp/set-literal
@@ -1154,7 +1154,7 @@
 (s/def ::call-expr
   (s/keys :req-un [::op ::args]))
 
-;;; This isn't picked up for e.g. noattack(i, j, queens[i], queens[j]). I suppose noattack is a 
+;;; This isn't picked up for e.g. noattack(i, j, queens[i], queens[j]). I suppose noattack is a
 (defrecord MznCallExpr [op args])
 ;;; <call-expr> ::= <ident-or-quoted-op> [ "(" <expr>, ... ")" ]
 ;;; This is called for e.g. constraint all_different(foo); :all_different is a builtin-op
@@ -1177,12 +1177,12 @@
   [pstate]
   (as-> pstate ?ps
     (eat-token ?ps :let)
-    (parse-list ?ps \{ \} \; :mznp/let-item) 
+    (parse-list ?ps \{ \} \; :mznp/let-item)
     (store ?ps :items)
     (eat-token ?ps :in)
-    (parse :mznp/expr ?ps)   
+    (parse :mznp/expr ?ps)
     (assoc ?ps :result (->MznLetExpr (recall ?ps :items) (:result ?ps)))))
- 
+
 ;;; <let-item> ::= <var-decl-item> | <constraint-item>
 (defparse :mznp/let-item
   [pstate]
@@ -1241,14 +1241,14 @@
   [pstate]
   (as-> pstate ?ps
     (store ?ps :gen-call-op :tkn)
-    (eat-token ?ps builtin-gen-call-fn) ; 'sum', 'forall' etc. 
+    (eat-token ?ps builtin-gen-call-fn) ; 'sum', 'forall' etc.
     (eat-token ?ps \()
-    (parse :mznp/comp-tail ?ps)             ; '(w in worker), '(i,j in Domain where i<j)', etc. 
+    (parse :mznp/comp-tail ?ps)             ; '(w in worker), '(i,j in Domain where i<j)', etc.
     (store ?ps :comp-tail)
     (eat-token ?ps \))
     (eat-token ?ps \()
-    (parse :mznp/expr ?ps)                  ; any expr. 
-    (store ?ps :body)    
+    (parse :mznp/expr ?ps)                  ; any expr.
+    (store ?ps :body)
     (eat-token ?ps \))
     (assoc ?ps :result
            (->MznGenCallExpr

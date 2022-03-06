@@ -1,7 +1,7 @@
 (ns pdenno.mznp.utils
   "Utilities for MiniZinc parsing and rewriting.")
 
-;;;============ These are all used in macros.clj The macros are used in mznp.cljc and sexp.cljc ==============
+;;;============ These are all used in macros.clj The macros are used in mznp.cljc and rewrite.cljc ==============
 (def debugging? (atom false))
 (def debugging-rewrite? (atom false))
 (def tags (atom []))

@@ -1,9 +1,9 @@
-(ns pdenno.mznp.sexp-test
+(ns pdenno.mznp.rewrite-test
   "Rewrite the mznp parsed structure to 'executable' EDN."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.edn :as edn]
             [pdenno.mznp.macros :refer [debug-off]]
-            [pdenno.mznp.sexp :refer [rewrite* form-bin-ops*]]))
+            [pdenno.mznp.rewrite :refer [rewrite* form-bin-ops*]]))
 
 (deftest simple-sexp
   (testing "Test atomic rewriting tasks."
@@ -28,7 +28,7 @@
       (is (= (form-bin-ops* "x + 2 * 3 + 4 * 5")
              '(+ (+ x (* 2 3)) (* 4 5))))
       (is (= (form-bin-ops* "1 + 2 * 3 + 4 * 5" :reduce? true)
-             {:pdenno.mznp.sexp/type :MznExpr, :bin-ops [1 \+ 2 \* 3 \+ 4 \* 5]}))
+             {:pdenno.mznp.rewrite/type :MznExpr, :bin-ops [1 \+ 2 \* 3 \+ 4 \* 5]}))
       (is (= (-> (rewrite* :mznp/expr "1 + 2 * 3")) '(+ 1 (* 2 3))))
       ;; Some with primaries
       (is (= (form-bin-ops* "3 * (1 + 2)") '(* 3 (+ 1 2))))
@@ -85,19 +85,19 @@
              "sum (j in Jobs) (if (LineOfJob[j] == lin) then WorkersOnJob[j,w1] else 0 endif)")
             '(mznf/sum  [[j Jobs]]   true
                    (if  (= (mznf/aref LineOfJob j) lin) (mznf/aref WorkersOnJob j w1) 0))))
-     
+
      (is (= (rewrite*
              :mznp/constraint-item
              "constraint forall (lin in Lines, w1, w2 in Weeks
                         where w1 < w2                                       /\\
                         forall (j in Jobs) ((LineOfJob[j] = lin) /\\ (WorkersOnJob[j,w1] != 0))  /\\
                         (w2 == max (j in Jobs, w in (w1+1)..numWeeksScheduled)
-	                           (if ((LineOfJob[j] == lin) /\\ (WorkersOnJob[j,w] != 0)) then w else 0 endif)))
+                                   (if ((LineOfJob[j] == lin) /\\ (WorkersOnJob[j,w] != 0)) then w else 0 endif)))
              ((sum (j in Jobs) (if (LineOfJob[j] == lin) then WorkersOnJob[j,w1] else 0 endif))
               ==
               (sum (j in Jobs) (if (LineOfJob[j] == lin) then WorkersOnJob[j,w2] else 0 endif)))")
             '(mznf/forall [[lin Lines] [w1 w2 Weeks]]
-                      (and (and (< w1 w2) 
+                      (and (and (< w1 w2)
                                             (mznf/forall [[j Jobs]]  true
                                                     (and
                                                      (mznf/assign (mznf/aref LineOfJob j) lin)
