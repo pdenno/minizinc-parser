@@ -8,7 +8,7 @@ The grammar implemented is 2.2.0. See https://www.minizinc.org/doc-2.2.0/en/spec
 
 The library is still young, though its basic features have been tested.
 
-[![Clojars Project](https://img.shields.io/clojars/v/com.github.pdenno/minizinc-parser.svg)](https://clojars.org/com.github.pdenno/minizinc-parser)
+[![Clojars Project](https://img.shields.io/clojars/v/com.github.pdenno/mznp.svg)](https://clojars.org/com.github.pdenno/mznp)
 
 See the files in the test directory for various usage scenarios, but just to get started, 
 the `rewrite*` function in the `namespace pdenno.mznp.rewrite` provides capabilities to parse and rewrite MiniZinc code.
