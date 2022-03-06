@@ -17,11 +17,12 @@ the `rewrite*` function in the namespace `pdenno.mznp.rewrite` provides capabili
 
 With no keys it does all steps without debug output.
 
-   -   tag - a grammar element. For whole MiniZinc programs use :mznp/model; for expressions :mznp/expr.
-   -   str - a string to parse, or if :file? true, a file to slurp and process. (:file? true cannot yet be used from ClojureScript).
+   -   `<parse-tag>` - a grammar element. For whole MiniZinc programs use :mznp/model; for expressions :mznp/expr.
+   -   `<string>` - a string to parse, or if :file? true, a file to slurp and process. (:file? true cannot yet be used from ClojureScript).
 
   Optional Boolean keywords:
-	
+
+   -   `file?`         - Interpret `<string>` as naming a file.
    -   `:simplify?`    - Return a nested map of the parse with ::type specified for each node in the AST. Default is true.
    -   `:rewrite?`     - Return clojure translation of the input. Default is false.
    -   `:debug?`       - Display diagnostics of the rewriting (when :rewrite? is true).
