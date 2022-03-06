@@ -1,6 +1,6 @@
 # minizinc-parser
 
-A Clojure/ClojureScript library to parse MiniZinc to ASTs (populating a metamodel) or Clojure code.
+A Clojure/ClojureScript library to parse MiniZinc to either ASTs populating a metamodel or Clojure code.
 
 ## Usage
 
@@ -11,7 +11,7 @@ The library is still young, though its basic features have been tested.
 [![Clojars Project](https://img.shields.io/clojars/v/com.github.pdenno/mznp.svg)](https://clojars.org/com.github.pdenno/mznp)
 
 See the files in the test directory for various usage scenarios, but just to get started, 
-the `rewrite*` function in the `namespace pdenno.mznp.rewrite` provides capabilities to parse and rewrite MiniZinc code.
+the `rewrite*` function in the namespace `pdenno.mznp.rewrite` provides capabilities to parse and rewrite MiniZinc code.
 
 `(rw/rewrite <parse-tag> <string>)`
 
@@ -20,7 +20,8 @@ With no keys it does all steps without debug output.
    -   tag - a grammar element. For whole MiniZinc programs use :mznp/model; for expressions :mznp/expr.
    -   str - a string to parse, or if :file? true, a file to slurp and process. (:file? true cannot yet be used from ClojureScript).
 
-    Optional Boolean keywords:
+  Optional Boolean keywords:
+	
    -   `:simplify?`    - Return a nested map of the parse with ::type specified for each node in the AST. Default is true.
    -   `:rewrite?`     - Return clojure translation of the input. Default is false.
    -   `:debug?`       - Display diagnostics of the rewriting (when :rewrite? is true).
@@ -41,8 +42,8 @@ With no keys it does all steps without debug output.
 			0))
 ```		
 In the example above
-   1. `mznp/gen-call-expr` is a syntax keyword for parsing structures such as MiniZinc `sum`. (See the MiniZinc grammar.), and
-   2. `mznf/sum` and `mznf/aref` are functions in the namespece pdenno.mznp.mzn-fns namespace.
+   1. `:mznp/gen-call-expr` is a MiniZinc syntax keyword for parsing structures such as MiniZinc `sum`. (See the MiniZinc grammar.), and
+   2. `mznf/sum` and `mznf/aref` are functions in the `pdenno.mznp.mzn-fns` namespace.
 
 ## License
 
