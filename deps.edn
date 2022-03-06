@@ -33,6 +33,6 @@
             :deploy {:replace-deps {slipset/deps-deploy {:mvn/version "0.2.0"}}
                      :exec-fn deps-deploy.deps-deploy/deploy
                      :exec-args {:installer :remote
-                                 :sign-releases? true
+                                 :sign-releases? false ; This made the difference! (signing not working 2022-03-06)
                                  :artifact "mznp-0.1.74.jar"}}}}
 

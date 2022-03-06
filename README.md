@@ -1,6 +1,6 @@
 # minizinc-parser
 
-A Clojure library to parse MiniZinc to ASTs (populating a metamodel) or Clojure code.
+A Clojure/ClojureScript library to parse MiniZinc to ASTs (populating a metamodel) or Clojure code.
 
 ## Usage
 
@@ -18,7 +18,7 @@ the `rewrite*` function in the `namespace pdenno.mznp.rewrite` provides capabili
 With no keys it does all steps without debug output.
 
    -   tag - a grammar element. For whole MiniZinc programs use :mznp/model; for expressions :mznp/expr.
-   -   str - a string to parse, or if :file? true, a file to slurp and process. (:file? true cannot yet be used from JS).
+   -   str - a string to parse, or if :file? true, a file to slurp and process. (:file? true cannot yet be used from ClojureScript).
 
     Optional Boolean keywords:
    -   `:simplify?`    - Return a nested map of the parse with ::type specified for each node in the AST. Default is true.
