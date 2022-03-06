@@ -19,7 +19,7 @@ node_modules/
 .shadow-cljs
 .nrepl-*
 .DS_Store
-
+.clj-kondo/.cache/
 
 
 
