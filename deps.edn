@@ -33,9 +33,9 @@
             ;; env CLOJARS_USERNAME=peter.denno@nist.gov CLOJARS_PASSWORD=clojars-token clj -X:deploy
             :deploy {:extra-deps {slipset/deps-deploy {:mvn/version "RELEASE"}}
                      :exec-fn deps-deploy.deps-deploy/deploy
-                     :exec-args {:installer :remote
+                     :exec-args {:installer :remote  ; :remote means clojars. :local means .m2
                                  :sign-releases? false
-                                 :artifact "mzn-parser-1.0.84.jar"}}}} ; <============= Update!
+                                 :artifact "target/mznp-1.0.85.jar"}}}} ; <============= Update!
 
 ;;; clj -T:search/outdated
 ;;;  |           :file |                         :name |                                 :current |                                  :latest |
