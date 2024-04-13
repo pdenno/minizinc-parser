@@ -18,7 +18,7 @@ owing to this code using a version of Clojure Spec that had a programmatic API:
 
 
 See the files in the test directory for various usage scenarios, but just to get started,
-the `rewrite*` function in the namespace `pdenno.mznp.rewrite` provides capabilities to parse and rewrite MiniZinc code.
+the `rewrite*` function in the namespace `mznp.rewrite` provides capabilities to parse and rewrite MiniZinc code.
 
 `(rw/rewrite <parse-tag> <string>)`
 
@@ -51,7 +51,7 @@ With no keys it does all steps without debug output.
 ```
 In the example above
    1. `:mznp/gen-call-expr` is a MiniZinc syntax keyword for parsing structures such as MiniZinc `sum`. (See the MiniZinc grammar.), and
-   2. `mznf/sum` and `mznf/aref` are functions in the `pdenno.mznp.mzn-fns` namespace.
+   2. `mznf/sum` and `mznf/aref` are functions in the `mznp.mzn-fns` namespace.
 
 ## License
 
