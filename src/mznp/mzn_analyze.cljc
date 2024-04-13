@@ -1,7 +1,7 @@
-(ns pdenno.mznp.mzn-analyze
+(ns mznp.mzn-analyze
   "Functions to analyze mzn constraints"
   (:require
-   [pdenno.mznp.mzn-data :as mznd]))
+   [mznp.mzn-data :as mznd]))
 
 (def diag (atom nil))
 

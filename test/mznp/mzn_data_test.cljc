@@ -1,9 +1,9 @@
-(ns pdenno.mznp.mzn-data-test
+(ns mznp.mzn-data-test
   "Test creation and spec-ing of MiniZinc data structures."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.alpha.spec :as s]
-            [pdenno.mznp.mzn-data :as mznd]
-            [pdenno.mznp.mzn-user :as mznu]))
+            [mznp.mzn-data :as mznd]
+            [mznp.mzn-user :as mznu]))
 
 (deftest mzn-data-structure
   (testing "that MiniZinc data structures pass their specs."

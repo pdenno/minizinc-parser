@@ -1,4 +1,4 @@
-(ns pdenno.mznp.mzn-fns
+(ns mznp.mzn-fns
   "Functions and macros that 'implement' (for execution and explanation) MiniZinc functions (generator exps, etc.)")
 
 ;; POD ToDo: Can't mzn-max mzn-min use c/min c/max.

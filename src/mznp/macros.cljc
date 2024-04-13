@@ -1,7 +1,7 @@
-(ns pdenno.mznp.macros
+(ns mznp.macros
   "ClojureScript-compatible macros for mznp."
   (:require
-   [pdenno.mznp.utils :refer [debugging? debugging-rewrite? tags locals nspaces]]))
+   [mznp.utils :refer [debugging? debugging-rewrite? tags locals nspaces]]))
 
 ;;; (1) Macros don't have to be written in .clj; .cljc is fine. See https://clojurescript.org/about/differences:
 ;;;     "Macros are written in *.clj or *.cljc files and are compiled either as Clojure when using regular ClojureScript
@@ -10,7 +10,7 @@
 
 ;;;================================= parse.cljc =================================================
 (defmacro defparse [tag [pstate & keys-form] & body]
-  `(defmethod ~'pdenno.mznp.parse/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))] ; POD Why ~'tag?
+  `(defmethod ~'mznp.parse/parse ~tag [~'tag ~pstate ~@(or keys-form '(& _))] ; POD Why ~'tag?
      (when @debugging? (println (str (nspaces (* 2 (-> ~pstate :tags count))) "==> " ~tag)))
      (as-> ~pstate ~pstate
        (update-in ~pstate [:tags] conj ~tag)
@@ -43,7 +43,7 @@
 ;;; Similar to parse/defparse except that it serves no role except to make debugging nicer.
 ;;; You could eliminate this by global replace of "defrewrite" --> "defmethod rewrite" and removing defn rewrite.
 (defmacro defrewrite [tag [obj & keys-form] & body]
-  `(defmethod ~'pdenno.mznp.rewrite/rewrite-meth ~tag [~'tag ~obj ~@(or keys-form '(& _))]
+  `(defmethod ~'mznp.rewrite/rewrite-meth ~tag [~'tag ~obj ~@(or keys-form '(& _))]
      (when @debugging-rewrite? (println (str (nspaces (count @tags)) ~tag "==> ")))
      (swap! tags #(conj % ~tag))
      (swap! locals #(into [{}] %))

@@ -1,7 +1,7 @@
-(ns pdenno.mznp.parse-test
+(ns mznp.parse-test
   (:require [clojure.test :refer [deftest is testing]]
-            [pdenno.mznp.parse :refer [parse-ok?] :as parse]
-            [pdenno.mznp.utils :refer [debugging?]]))
+            [mznp.parse :refer [parse-ok?] :as parse]
+            [mznp.utils :refer [debugging?]]))
 
 (deftest single-lines
   (testing "type returned from parsing a short-ish string."
@@ -49,7 +49,7 @@
       (reset! debugging? db?))))
 
 #?(:clj (defn parse-file [fname]
-          (parse/parse-string (slurp fname)))
+          (parse/parse-string (slurp fname))))
 
 (deftest whole-models
   (testing "that valid models compile okay."
@@ -70,7 +70,7 @@
     (is (-> (parse-file "data/social-golfers.mzn") :error not))
     (is (-> (parse-file "data/stable-marriage.mzn") :error not))
     (is (-> (parse-file "data/sudoku.mzn") :error not))
-    (is (-> (parse-file "data/penalty.mzn") :error not)))))
+    (is (-> (parse-file "data/penalty.mzn") :error not))))
 
 ;;; POD Would be more useful to identify where an element is in any two of them.
 #_(deftest builtins-partition

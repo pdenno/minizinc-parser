@@ -1,25 +1,22 @@
 {:source-paths  ["src/dev" "src/main" "src/test"]
 ;;; WARNING: The thheller/shadow-cljs dependency in shadow-cljs.edn was ignored. Default version is used and override is not allowed to ensure compatibility.
 ;;; The versions provided by shadow-cljs can be found here: https://clojars.org/thheller/shadow-cljs/versions/2.13.0
- :dependencies  [[com.taoensso/timbre  "5.1.2"] ; specifying a clojure version here is not allowed.
-                 [cider/cider-nrepl   "0.26.0"]
-                #_[thheller/shadow-cljs "2.13.0"]
-                 #_[org.clojure/clojurescript "1.10.844"]]
+ :dependencies  [[com.taoensso/timbre  "6..5.0"] ; specifying a clojure version here is not allowed.
+                 [cider/cider-nrepl   "0.47.1"]]
   :nrepl  {:port 9000}
 
 ;;; See Section 10:  https://shadow-cljs.github.io/docs/UsersGuide.html
  :builds
  {:as-module ; I used this for compilation; didn't have a CLJS REPL though!
   {:target :npm-module
-   :entries [pdenno.mznp.sexp]
+   :entries [mznp.sexp]
    :output-dir "node_modules/shadow-cljs"} ; Said to be defaulted; it is not.
 
   ;; YOU DON'T NEED THIS! When CIDER asks for a target, respond with node-repl. (It is one of the choices.)
-  ;; You may have to require the namespaces you reference; just going into one that has the 
-  ;; require (e.g. app.client) doesn't seem to get the job done. 
-  :in-browser 
-  {:target :browser 
+  ;; You may have to require the namespaces you reference; just going into one that has the
+  ;; require (e.g. app.client) doesn't seem to get the job done.
+  :in-browser
+  {:target :browser
    :output-dir "resources/public/js/main"
    :asset-path "/js/main"
    :modules    {:main {:init-fn app.client/init :entries [app.client]}}}}}
-

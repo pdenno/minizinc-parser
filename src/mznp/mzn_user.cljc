@@ -1,9 +1,9 @@
-(ns pdenno.mznp.mzn-user
+(ns mznp.mzn-user
   "Not much here. It is where the user's data structures and code for constraints is interned."
   (:refer-clojure :exclude [range max min])
   (:require [clojure.alpha.spec :as s]
             [clojure.alpha.spec.gen :as gen]
-            [pdenno.mznp.mzn-fns :as mznf])) ; Needed for eval
+            [mznp.mzn-fns :as mznf])) ; Needed for eval
 
 (defn run-constraint-loop
   "Run the constraint picked out by index into the constraint vector
