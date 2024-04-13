@@ -20,17 +20,22 @@
                                     com.lambdaisland/classpath   {:mvn/version "0.5.48"}
                                     org.clojure/tools.namespace  {:mvn/version "1.5.0"}}}
 
+            ;; Build says: Skipping coordinate: {:git/url https://github.com/clojure/spec-alpha2.git, :git/sha c087ded910b3532a938b37e853df79fc3b9c48c1,
+            ;; :deps/manifest :deps, :deps/root /home/msid/pdenno/.gitlibs/libs/org.clojure/spec-alpha2/c087ded910b3532a938b37e853df79fc3b9c48c1,
+            ;; :parents #{[]}, :paths [/home/msid/pdenno/.gitlibs/libs/org.clojure/spec-alpha2/c087ded910b3532a938b37e853df79fc3b9c48c1/src/main/clojure]}
+            ;; This can't be good!
+
             :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.0"}}
                     :ns-default build}
 
             ;; https://github.com/slipset/deps-deploy
-            ;; Remember to do clj -Spom to create pom.xml
+            ;; Remember to do clj -Spom to create pom.xml --- UPDATE IT!
             ;; env CLOJARS_USERNAME=peter.denno@nist.gov CLOJARS_PASSWORD=clojars-token clj -X:deploy
             :deploy {:extra-deps {slipset/deps-deploy {:mvn/version "RELEASE"}}
                      :exec-fn deps-deploy.deps-deploy/deploy
                      :exec-args {:installer :remote
-                                 :sign-releases? true
-                                 :artifact "deps-deploy.jar"}}}}
+                                 :sign-releases? false
+                                 :artifact "mzn-parser-1.0.84.jar"}}}} ; <============= Update!
 
 ;;; clj -T:search/outdated
 ;;;  |           :file |                         :name |                                 :current |                                  :latest |

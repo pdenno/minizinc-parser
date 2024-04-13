@@ -6,7 +6,7 @@
 ;;; See also https://clojure.org/guides/tools_build
 ;;; To install jar: clj -T:build all
 
-(def lib 'com.github.pdenno/mzn-parser)
+(def lib 'com.github.pdenno/mznp)
 (def version (format "1.0.%s" (b/git-count-revs nil)))
 (def class-dir "target/classes")
 (def basis (b/create-basis {:project "deps.edn"}))
