@@ -1,6 +1,6 @@
 {:paths   ["src" "resources"]
- :deps    {com.taoensso/timbre      {:mvn/version "5.1.2"}
-           org.clojure/clojure      {:mvn/version "1.10.3"}
+ :deps    {com.taoensso/timbre      {:mvn/version "6.5.0"}
+           org.clojure/clojure      {:mvn/version "1.11.2"}
            ;; https://github.com/clojure/spec-alpha2
            ;; git ls-remote https://github.com/clojure/spec-alpha2.git refs/heads/master
            ;; 2022-03-06 More recent SHA, "99456b1856a6fd934e2c30b17920bd790dd81775" is incompatible?
@@ -8,31 +8,38 @@
            org.clojure/spec-alpha2  {:git/url "https://github.com/clojure/spec-alpha2.git"
                                      :sha "c087ded910b3532a938b37e853df79fc3b9c48c1"}}
 
-  :aliases {:test {:extra-paths ["test"]
-                   :extra-deps  {lambdaisland/kaocha {:mvn/version "1.63.998"}}}
+  :aliases {:dev  {:extra-paths ["src" "test"]
+                   :extra-deps  {org.clojure/clojurescript   {:mvn/version "1.11.132"}
+                                 thheller/shadow-cljs        {:mvn/version "2.28.3"}
+                                 expound/expound             {:mvn/version "0.9.0"}
+                                 org.clojure/tools.namespace {:mvn/version "1.5.0"}}}
+            :test {:extra-paths    ["test" "env/dev"]
+                   :main-opts      ["-m" "kaocha.runner"]
+                   :extra-deps     {lambdaisland/kaocha          {:mvn/version "1.88.1376"}
+                                    ;; Since I'm running from the command line, bin/koacha, need to repeat these.
+                                    com.lambdaisland/classpath   {:mvn/version "0.5.48"}
+                                    org.clojure/tools.namespace  {:mvn/version "1.5.0"}}}
 
-           :dev  {:extra-paths ["src/test"]
-                  :extra-deps  {org.clojure/clojurescript   {:mvn/version "1.11.4"}
-                                thheller/shadow-cljs        {:mvn/version "2.17.7"}
-                                expound/expound             {:mvn/version "0.9.0"}
-                                org.clojure/tools.namespace {:mvn/version "1.2.0"}}}
-            
-            :jar {:replace-deps {com.github.seancorfield/depstar {:mvn/version "2.1.303"}}
-                  :exec-fn hf.depstar/jar ; ToDo: Start using tools.build. "My build.clj wrapper makes it easier to switch."
-                  :exec-args {:jar "mznp-0.1.74.jar"
-                              :sync-pom true
-                              :version "0.1.74"
-                              :group-id "com.github.pdenno"
-                              :artifact-id "mznp"}}
-            
-            :install {:replace-deps {slipset/deps-deploy {:mvn/version "0.2.0"}}
-                      :exec-fn deps-deploy.deps-deploy/deploy
-                      :exec-args {:installer :local
-                                  :artifact "mznp-0.1.74.jar"}}
-            
-            :deploy {:replace-deps {slipset/deps-deploy {:mvn/version "0.2.0"}}
+            :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.0"}}
+                    :ns-default build}
+
+            ;; https://github.com/slipset/deps-deploy
+            ;; Remember to do clj -Spom to create pom.xml
+            ;; env CLOJARS_USERNAME=peter.denno@nist.gov CLOJARS_PASSWORD=clojars-token clj -X:deploy
+            :deploy {:extra-deps {slipset/deps-deploy {:mvn/version "RELEASE"}}
                      :exec-fn deps-deploy.deps-deploy/deploy
                      :exec-args {:installer :remote
-                                 :sign-releases? false ; This made the difference! (signing not working 2022-03-06)
-                                 :artifact "mznp-0.1.74.jar"}}}}
+                                 :sign-releases? true
+                                 :artifact "deps-deploy.jar"}}}}
 
+;;; clj -T:search/outdated
+;;;  |           :file |                         :name |                                 :current |                                  :latest |
+;;;  |-----------------+-------------------------------+------------------------------------------+------------------------------------------|
+;;;  |        deps.edn |    com.lambdaisland/classpath |                                   0.4.44 |                                   0.5.48 |
+;;;  |                 | io.github.clojure/tools.build |                                    0.9.6 |                                   0.10.0 |
+;;;  |                 |           lambdaisland/kaocha |                                1.87.1366 |                                1.88.1376 |
+;;;  |                 |       org.clojure/spec-alpha2 | c087ded910b3532a938b37e853df79fc3b9c48c1 | 4cbfa677c4cd66339f18e1c122222c05c69e0d8e |
+;;;  |                 |   org.clojure/tools.namespace |                                    1.4.4 |                                    1.5.0 |
+;;;  |                 |          thheller/shadow-cljs |                                   2.17.7 |                                   2.28.3 |
+;;;  | shadow-cljs.edn |             cider/cider-nrepl |                                   0.26.0 |                                   0.47.1 |
+;;;  |                 |           com.taoensso/timbre |                                    5.1.2 |                                    6.5.0 |

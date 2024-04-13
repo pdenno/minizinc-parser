@@ -1,10 +1,10 @@
-(ns pdenno.mznp.mzn-fns-test
+(ns mznp.mzn-fns-test
   "Test mzn-fn functions and macros."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [clojure.set    :as sets]
-            [pdenno.mznp.rewrite :as rewrite]
-            [pdenno.mznp.mzn-fns :refer :all]))
+            [mznp.rewrite :as rewrite]
+            [mznp.mzn-fns :refer :all]))
 
 ;;; POD 2021-10-28 Needs investigation!
 #_(deftest mzn-fns

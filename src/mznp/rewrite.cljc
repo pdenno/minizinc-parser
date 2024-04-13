@@ -1,10 +1,10 @@
-(ns pdenno.mznp.rewrite
+(ns mznp.rewrite
   "Simplify the parsed structure using s-expressions in some places."
   (:require [clojure.alpha.spec :as s]
-            [pdenno.mznp.macros :refer-macros [defrewrite] :refer [defrewrite]]
-            [pdenno.mznp.mzn-fns :as mznf]
-            [pdenno.mznp.parse :as mznp]
-            [pdenno.mznp.utils :as util]
+            [mznp.macros :refer-macros [defrewrite] :refer [defrewrite]]
+            [mznp.mzn-fns :as mznf]
+            [mznp.parse :as mznp]
+            [mznp.utils :as util]
             [taoensso.timbre :as log]))
 
 ;;; The functions that end in a * (rewrite* and form-bin-ops*) are 'toplevel' and good for testing.
@@ -259,7 +259,7 @@
     100))
 
 ;;; The export is here so that you can require this function in JS.
-;;; var ns = require("mznp-js/pdenno.mznp.rewrite.rewrite*");
+;;; var ns = require("mznp-js/mznp.rewrite.rewrite*");
 ;;; ns.rewrite*(...)
 (defn ^:export rewrite*
   "mzn/parse-string, simplify, and rewrite, but with controls for partial evaluation, debugging etc.

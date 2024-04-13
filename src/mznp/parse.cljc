@@ -1,4 +1,4 @@
-(ns pdenno.mznp.parse
+(ns mznp.parse
   "Parse MiniZinc to records."
   (:refer-clojure :exclude [slurp])
   (:require
@@ -7,8 +7,8 @@
    [clojure.string     :as str]
    [clojure.set        :as sets]
    [clojure.alpha.spec :as s]
-   [pdenno.mznp.utils  :refer [debugging?] :as util]
-   [pdenno.mznp.macros :refer-macros [defparse store recall] :refer [defparse store recall]]))
+   [mznp.utils  :refer [debugging?] :as util]
+   [mznp.macros :refer-macros [defparse store recall] :refer [defparse store recall]]))
 
 ;;; Purpose: Parse minizinc .mzn.
 ;;; The 'defparse' parsing functions pass around complete state.

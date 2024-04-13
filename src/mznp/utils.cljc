@@ -1,4 +1,4 @@
-(ns pdenno.mznp.utils
+(ns mznp.utils
   "Utilities for MiniZinc parsing and rewriting.")
 
 ;;;============ These are all used in macros.clj The macros are used in mznp.cljc and rewrite.cljc ==============

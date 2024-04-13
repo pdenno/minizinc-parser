@@ -1,9 +1,9 @@
-(ns pdenno.mznp.rewrite-test
+(ns mznp.rewrite-test
   "Rewrite the mznp parsed structure to 'executable' EDN."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.edn :as edn]
-            [pdenno.mznp.macros :refer [debug-off]]
-            [pdenno.mznp.rewrite :refer [rewrite* form-bin-ops*]]))
+            [mznp.macros :refer [debug-off]]
+            [mznp.rewrite :refer [rewrite* form-bin-ops*]]))
 
 (deftest simple-sexp
   (testing "Test atomic rewriting tasks."
@@ -28,7 +28,7 @@
       (is (= (form-bin-ops* "x + 2 * 3 + 4 * 5")
              '(+ (+ x (* 2 3)) (* 4 5))))
       (is (= (form-bin-ops* "1 + 2 * 3 + 4 * 5" :reduce? true)
-             {:pdenno.mznp.rewrite/type :MznExpr, :bin-ops [1 \+ 2 \* 3 \+ 4 \* 5]}))
+             {:mznp.rewrite/type :MznExpr, :bin-ops [1 \+ 2 \* 3 \+ 4 \* 5]}))
       (is (= (-> (rewrite* :mznp/expr "1 + 2 * 3")) '(+ 1 (* 2 3))))
       ;; Some with primaries
       (is (= (form-bin-ops* "3 * (1 + 2)") '(* 3 (+ 1 2))))
