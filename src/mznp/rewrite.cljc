@@ -4,8 +4,7 @@
             [mznp.macros :refer-macros [defrewrite] :refer [defrewrite]]
             [mznp.mzn-fns :as mznf]
             [mznp.parse :as mznp]
-            [mznp.utils :as util]
-            [taoensso.timbre :as log]))
+            [mznp.utils :as util]))
 
 ;;; The functions that end in a * (rewrite* and form-bin-ops*) are 'toplevel' and good for testing.
 
@@ -211,7 +210,6 @@
 (def diag (atom nil))
 
 (defrewrite nil [m]
-  (log/info "No defrewrite method for object" m)
   (reset! diag m)
   ;; Don't send back m. Other things get confused.
   nil)
