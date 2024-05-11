@@ -19,6 +19,9 @@ node_modules/
 .nrepl-*
 .DS_Store
 .clj-kondo/.cache/
+.clj-kondo/rewrite-clj/
+.clj-kondo/taoensso/
+.lsp/
 .cpcache/
 
 
