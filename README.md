@@ -10,12 +10,8 @@ The library is still young, though its basic features have been tested.
 
 [![Clojars Project](https://img.shields.io/clojars/v/com.github.pdenno/mznp.svg)](https://clojars.org/com.github.pdenno/mznp)
 
-However, there is currently a bug in the deployment which requires that you add an additional dependency to your deps.edn (or equivalent),
-owing to this code using a version of Clojure Spec that had a programmatic API:
-
-`org.clojure/spec-alpha2  {:git/url "https://github.com/clojure/spec-alpha2.git"
-						   :sha "c087ded910b3532a938b37e853df79fc3b9c48c1"}`
-
+In addition to the MiniZinc functionality, this library contains some Clojure Spec-like features that were part of an experimental version of spec.
+This code provides programmatic creation of specs, it is found in src/spec-sha, and corresponds to spec-alpha2 SHA c087ded910b3532a938b37e853df79fc3b9c48c1.
 
 See the files in the test directory for various usage scenarios, but just to get started,
 the `rewrite*` function in the namespace `mznp.rewrite` provides capabilities to parse and rewrite MiniZinc code.

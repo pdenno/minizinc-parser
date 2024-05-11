@@ -4,7 +4,7 @@
   <packaging>jar</packaging>
   <groupId>com.github.pdenno</groupId>
   <artifactId>mznp</artifactId>
-  <version>1.0.87</version>
+  <version>1.0.89</version>
   <name>mznp</name>
   <licenses>
     <license>
