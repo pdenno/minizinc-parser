@@ -3,8 +3,8 @@
    To establish data values, data from the minizinc model (:mval) can be used, or data from the
    running Jupyter notebook (:kval)."
   (:require
-   [clojure.set          :as sets]
-   [clojure.alpha.spec   :as s]
+   [clojure.set   :as sets]
+   [spec-sha.spec :as s]
    [mznp.mzn-fns  :as mznf] ; Not referenced but needed for eval.
    [mznp.rewrite  :as rewrite]))
 

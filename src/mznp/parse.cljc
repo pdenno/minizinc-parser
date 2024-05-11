@@ -6,7 +6,7 @@
    [clojure.pprint :refer [cl-format]]
    [clojure.string     :as str]
    [clojure.set        :as sets]
-   [clojure.alpha.spec :as s]
+   [spec-sha.spec      :as s]
    [mznp.utils  :refer [debugging?] :as util]
    [mznp.macros :refer-macros [defparse store recall] :refer [defparse store recall]]))
 

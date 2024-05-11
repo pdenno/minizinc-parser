@@ -1,6 +1,6 @@
 (ns mznp.rewrite
   "Simplify the parsed structure using s-expressions in some places."
-  (:require [clojure.alpha.spec :as s]
+  (:require [spec-sha.spec :as s]
             [mznp.macros :refer-macros [defrewrite] :refer [defrewrite]]
             [mznp.mzn-fns :as mznf]
             [mznp.parse :as mznp]

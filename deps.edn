@@ -5,8 +5,9 @@
            ;; git ls-remote https://github.com/clojure/spec-alpha2.git refs/heads/master
            ;; 2022-03-06 More recent SHA, "99456b1856a6fd934e2c30b17920bd790dd81775" is incompatible?
            ;; ToDo: See the other programmatic approach I asked about in Slack.
-           org.clojure/spec-alpha2  {:git/url "https://github.com/clojure/spec-alpha2.git"
-                                     :sha "c087ded910b3532a938b37e853df79fc3b9c48c1"}}
+           ;; 2024-05-11 We've included this SHA version in src/spec_sha. ToDo: Probably find a better way!
+           #_#_org.clojure/spec-alpha2  {:git/url "https://github.com/clojure/spec-alpha2.git"
+                                         :sha "c087ded910b3532a938b37e853df79fc3b9c48c1"}}
 
   :aliases {:dev  {:extra-paths ["src" "test"]
                    :extra-deps  {org.clojure/clojurescript   {:mvn/version "1.11.132"}
